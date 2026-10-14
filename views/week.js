@@ -11,8 +11,11 @@ import { weeklyBars, kaiyuChart } from '../lib/charts.js';
 import {
   srcWeek, insightBox, noteMissing, sectionHead, chip, firstWeekGrid, retentionBlock, cliffTable, dialogRow, epLink,
 } from './common.js';
+import { commentBox, notesPanel, appleEntry, strayCommentsCard } from './collab.js';
+import { SECTION, sectionKey, weekSectionKeys } from '../lib/collab.js';
 
-export function renderWeek(root, ix, param) {
+// cx：書き込み機能（main.js が作る。ローカル表示では writable=false で「ログインした公開版で使えます」を出す）
+export function renderWeek(root, ix, param, cx = null) {
   const latest = latestApprovedWeek(ix);
   const wk = param ? Number(param) : latest?.week_number;
   const week = ix.weekByNum.get(wk);
@@ -26,16 +29,24 @@ export function renderWeek(root, ix, param) {
   const eps = episodesForWeek(ix, week);
   const ctx = { ix, week, prev, notes, eps, win: weekWindow(ix, week), cmp: wowComparison(ix, week, prev) };
 
-  const toc = [['cover', '表紙'], ['summary', 'サマリー'], ['kpi', '全体KPI'], ['first', '初週'], ['ret', 'リテンション'], ['cliffs', '崖・対話'], ['kaiyu', '回遊'], ['wrap', '示唆と次アクション']];
+  const toc = [['cover', '表紙'], ['notes', '文章と承認'], ['summary', 'サマリー'], ['kpi', '全体KPI'], ['first', '初週'], ['ret', 'リテンション'], ['cliffs', '崖・対話'], ['kaiyu', '回遊'], ['wrap', '示唆と次アクション']];
   root.append(h('nav', { class: 'toc', 'aria-label': 'この週の目次' },
     toc.map(([id, label]) => h('button', { type: 'button', onclick: () => document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, label))));
 
+  // 各節の最後にコメント欄（section_key は lib/collab.js の SECTION）
+  const withComments = (el, key) => { if (el && cx) el.append(commentBox(cx, wk, key)); return el; };
   const parts = [
-    cover(ctx), summary(ctx), kpi(ctx),
-    h('div', { id: 'sec-first', class: 'anchor' }), ...eps.map(n => firstWeekSection(ctx, n)),
+    cover(ctx),
+    cx ? notesPanel(cx, ix, week, eps) : null,
+    withComments(summary(ctx), SECTION.SUMMARY),
+    withComments(kpi(ctx), SECTION.KPI),
+    h('div', { id: 'sec-first', class: 'anchor' }), ...eps.map(n => withComments(firstWeekSection(ctx, n, cx), sectionKey(SECTION.FIRST_WEEK, n))),
     eps.length ? null : h('section', { class: 'card' }, h('p', { class: 'missing-block' }, 'この週に公開した回が見つかりません（episodes の公開日で判定）')),
-    h('div', { id: 'sec-ret', class: 'anchor' }), ...eps.map(n => retentionSection(ctx, n, eps.length ? Math.max(...eps) - 1 : undefined)),
-    cliffs(ctx), kaiyu(ctx), wrap(ctx)];
+    h('div', { id: 'sec-ret', class: 'anchor' }), ...eps.map(n => withComments(retentionSection(ctx, n, eps.length ? Math.max(...eps) - 1 : undefined), sectionKey(SECTION.RETENTION, n))),
+    withComments(cliffs(ctx), SECTION.CLIFFS),
+    withComments(kaiyu(ctx), SECTION.KAIYU),
+    withComments(wrap(ctx), SECTION.WRAP),
+    cx ? strayCommentsCard(cx, wk, weekSectionKeys(eps)) : null];
   root.append(...parts.filter(Boolean));
 }
 
@@ -176,7 +187,7 @@ function kpi(ctx) {
 }
 
 // ── 4. 回ごとの初週 ─────────────────────────────────────────────────
-function firstWeekSection({ ix, notes }, n) {
+function firstWeekSection({ ix, notes }, n, cx) {
   const ns = notes?.episode_sections?.find(s => num(s.episode_number) === n) || null;
   const e = ix.epByNum.get(n);
   return h('section', { class: 'card' },
@@ -188,7 +199,8 @@ function firstWeekSection({ ix, notes }, n) {
     firstWeekGrid(ix, n, ns),
     ns?.footnote ? h('p', { class: 'calc-note' }, ns.footnote) : null,
     insightBox(ns?.insight),
-    !ns && notes ? noteMissing('この回の初週の文章はありません') : null);
+    !ns && notes ? noteMissing('この回の初週の文章はありません') : null,
+    cx ? appleEntry(cx, ix, n) : null);
 }
 
 // ── 5. 回ごとのリテンション ─────────────────────────────────────────

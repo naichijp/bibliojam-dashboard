@@ -2,10 +2,16 @@
 //   ?mode=local（既定）  … data/bundle.json。無いときだけ ../tests/fixtures/sample_bundle.json（サンプルデータ）
 //                           fixture は app/ の外に置く（本番に出さない）。report-dashboard/ を配信して /app/ を開いたときだけ届く
 //   ?mode=remote         … config.js の Supabase にログイン（既定はGoogle。config の LOGIN_METHODS で 'email' も足せる）し rpc('dashboard_bundle')
+//   ?mode=mock           … 手元の画面確認用の擬似RPC（app/dev/mockrpc.js）。data/bundle.json をもとに、書き込みはメモリだけ。
+//                           localhost・127.0.0.1・[::1] のときだけ有効。公開先では無視して remote になる（app/dev/ は公開の一式にも入らない）。
+//                           &role=viewer|editor|owner（既定 editor）、&mock_hide_apple=38（その回の Apple 初週 approved を外して手入力の表示を試す）
 // ?mode が無いとき：localhost・127.0.0.1 では local、それ以外（公開先）では remote。
 // Supabase JS はリモートモードのときだけ読み込む。
+// 戻り値の client は書き込みRPC用（remote は supabase-js の client、mock は擬似RPC、local は null）。
 
 export const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js';
+// 改ざん検知（SRI）。jsDelivr の公表値と、配信ファイルから計算した値が一致することを 2026-10-14 に確認
+export const SUPABASE_JS_INTEGRITY = 'sha256-hZaWX+kY5lZgChtWjToWj1wNPSKmAIhrtvRKZVXbAec=';
 
 export class SetupError extends Error {
   constructor(message, { title = '設定が必要です', steps = [], detail = '', action = null } = {}) {
@@ -29,10 +35,16 @@ export class LoginRequired extends Error {
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '']);
 
-export function currentMode() {
-  const m = new URLSearchParams(location.search).get('mode');
+export function resolveMode(search, hostname) {
+  const local = LOCAL_HOSTS.has(hostname);
+  const m = new URLSearchParams(search || '').get('mode');
   if (m === 'remote' || m === 'local') return m;
-  return LOCAL_HOSTS.has(location.hostname) ? 'local' : 'remote';
+  if (m === 'mock') return local ? 'mock' : 'remote';   // 擬似RPCは手元だけ。公開先では使わせない
+  return local ? 'local' : 'remote';
+}
+
+export function currentMode() {
+  return resolveMode(location.search, location.hostname);
 }
 
 // ログイン後に戻るURL。公開先ではクエリなし、手元で試すときは ?mode=remote を残す
@@ -42,7 +54,10 @@ function returnUrl() {
 }
 
 export async function loadBundle() {
-  return currentMode() === 'remote' ? loadRemote() : loadLocal();
+  const mode = currentMode();
+  if (mode === 'remote') return loadRemote();
+  if (mode === 'mock') return loadMock();
+  return loadLocal();
 }
 
 // ── ローカル ────────────────────────────────────────────────────────
@@ -67,6 +82,25 @@ async function loadLocal() {
       '開発中のサンプル表示は report-dashboard/ を配信して /app/ を開く（tests/fixtures/sample_bundle.json を読む）',
     ],
   });
+}
+
+// ── 擬似RPC（手元の画面確認用。?mode=mock） ─────────────────────────
+let mockClient = null;
+
+async function loadMock() {
+  if (!LOCAL_HOSTS.has(location.hostname)) throw new SetupError('擬似RPCは手元（localhost）だけで使えます', { title: '?mode=mock は使えません' });
+  if (!mockClient) {
+    const base = await fetchJson('data/bundle.json');
+    if (!base) throw new SetupError('擬似RPCのもとになる data/bundle.json がありません', { title: 'データがありません', steps: ['tools/build.py で app/data/bundle.json を作る'] });
+    const { createMockClient } = await import('./dev/mockrpc.js');
+    const q = new URLSearchParams(location.search);
+    const hideApple = (q.get('mock_hide_apple') || '').split(',').map(Number).filter(Number.isFinite);
+    mockClient = createMockClient(base, { role: q.get('role') || 'editor', hideApple });
+    window.__bjMock = mockClient.mock;   // コンソールから failNext('revision_conflict') などで失敗を試せる
+  }
+  const { data, error } = await mockClient.rpc('dashboard_bundle');
+  if (error) throw new Error(`擬似RPCが失敗しました: ${error.message}`);
+  return { bundle: data, meta: { mode: 'mock', path: 'mock rpc dashboard_bundle()（app/data/bundle.json をもとにした擬似RPC・書き込みはメモリだけ）', sample: false, user: data.viewer?.email || null }, client: mockClient };
 }
 
 // ── リモート（Supabase） ─────────────────────────────────────────────
@@ -95,11 +129,12 @@ async function readConfig() {
   return { url, key, rpc: cfg.RPC_NAME || 'dashboard_bundle', methods: methods.length ? methods : ['google'] };
 }
 
-function loadScript(src) {
+function loadScript(src, integrity) {
   return new Promise((resolve, reject) => {
     if (window.supabase && window.supabase.createClient) return resolve();
     const s = document.createElement('script');
     s.src = src;
+    if (integrity) s.integrity = integrity;
     s.crossOrigin = 'anonymous';
     s.onload = () => resolve();
     s.onerror = () => reject(new Error('Supabase JS を読み込めませんでした（ネットワークを確認してください）'));
@@ -112,7 +147,7 @@ let client = null;
 async function getClient() {
   if (client) return client;
   const cfg = await readConfig();
-  await loadScript(SUPABASE_JS);
+  await loadScript(SUPABASE_JS, SUPABASE_JS_INTEGRITY);
   client = window.supabase.createClient(cfg.url, cfg.key, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce' },
   });
@@ -175,7 +210,7 @@ async function loadRemote() {
     throw new Error(`データを取得できませんでした: ${msg.trim()}`);
   }
   const bundle = typeof data === 'string' ? JSON.parse(data) : data;
-  return { bundle, meta: { mode: 'remote', path: `rpc ${sb.__rpcName}()`, sample: false, user: session.user?.email || null } };
+  return { bundle, meta: { mode: 'remote', path: `rpc ${sb.__rpcName}()`, sample: false, user: session.user?.email || null }, client: sb };
 }
 
 // Googleでログイン。戻り先は Supabase の Redirect URLs に登録したものだけが使える

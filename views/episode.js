@@ -3,8 +3,9 @@ import { h, val } from '../lib/dom.js';
 import { num, jstDateTime, epLabel, shortTitle, weekOfEpisode, isLongForm, utcDate } from '../lib/metrics.js';
 import { fmtInt, fmtDur, cohortJa, fmtNum, fmtYMD, fmtMinutes, MISSING } from '../lib/format.js';
 import { sectionHead, firstWeekGrid, retentionBlock, cliffTable, dialogRow, insightBox, chip } from './common.js';
+import { appleEntry } from './collab.js';
 
-export function renderEpisode(root, ix, param) {
+export function renderEpisode(root, ix, param, cx = null) {
   const n = Number(param);
   const e = ix.epByNum.get(n);
   const nums = ix.episodes.map(x => x.episode_number);
@@ -45,7 +46,8 @@ export function renderEpisode(root, ix, param) {
     sectionHead('初週', `${epLabel(ix, n)} の初週`, fwNote ? `文章は W${fwNote.w} の週次レポートから` : '配信日から7日間（EP基準）'),
     firstWeekGrid(ix, n, fwNote?.s),
     fwNote?.s?.footnote ? h('p', { class: 'calc-note' }, fwNote.s.footnote) : null,
-    insightBox(fwNote?.s?.insight)));
+    insightBox(fwNote?.s?.insight),
+    cx ? appleEntry(cx, ix, n) : null));
 
   root.append(h('section', { class: 'card' },
     sectionHead('リテンション', `${epLabel(ix, n)} のリテンション`, retNote?.s?.subtitle || null),

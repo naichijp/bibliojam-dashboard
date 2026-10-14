@@ -12,7 +12,7 @@ export function renderStatus(root, ix, meta) {
   root.append(h('section', { class: 'card' },
     sectionHead('bundle', '読み込んだデータ', null),
     h('dl', { class: 'meta-list' },
-      h('dt', null, '読み先'), h('dd', null, `${meta.mode === 'remote' ? 'リモート' : 'ローカル'}：${meta.path}${meta.user ? `（${meta.user}）` : ''}`),
+      h('dt', null, '読み先'), h('dd', null, `${meta.mode === 'remote' ? 'リモート' : meta.mode === 'mock' ? '擬似RPC（手元の確認用）' : 'ローカル'}：${meta.path}${meta.user ? `（${meta.user}）` : ''}`),
       h('dt', null, '種類'), h('dd', null, meta.sample ? 'サンプルデータ（fixture）' : (b.mode || '記録なし')),
       h('dt', null, 'bundleの生成'), h('dd', null, b.built_at ? fmtDateTime(b.built_at) : MISSING),
       h('dt', null, 'DB書き出し'), h('dd', null, `${b.db?.generated_at ? fmtDateTime(b.db.generated_at) : MISSING}（${b.db?.source || '出典未記録'}・schema ${b.db?.schema_version ?? '?'}）`),

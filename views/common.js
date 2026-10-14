@@ -9,6 +9,7 @@ import {
   fmtNum, statusJa, truncate, fmtYMD,
 } from '../lib/format.js';
 import { retentionChart, chartAvailable } from '../lib/charts.js';
+import { appleFirstWeekView, appleInputsFor, memberName, APPLE_STATUS_JA } from '../lib/collab.js';
 
 // ── 出典テキスト ─────────────────────────────────────────────────────
 export function approvedText(row) {
@@ -135,6 +136,8 @@ export function firstWeekGrid(ix, n, noteSection) {
   ] : [h('p', { class: 'missing-block' }, 'Spotifyの初週は未取得')];
 
   const apOthers = fw.apple.others;
+  // Apple の手入力（公開版の bundle.apple_inputs）。approved の行があればそちらを優先し、無いときだけ「手入力（未承認）」を出す
+  const apView = appleFirstWeekView(ap, appleInputsFor(ix.bundle, n));
   const apBody = ap ? [
     row('再生数', val(fmtInt(ap.plays_or_views), srcFW(ap, 'plays_or_views'), 'big'),
       ap.data_type === 'first_week' ? '（日別合計）' : '（全期間の値）'),
@@ -144,7 +147,8 @@ export function firstWeekGrid(ix, n, noteSection) {
     apOthers.length ? h('div', { class: 'kv-others' }, '別の取り方: ', apOthers.map((o, i) => [i ? '／' : '',
       val(`${o.data_type === 'reference' ? '全期間' : o.data_type || '別行'} 再生${fmtInt(o.plays_or_views)}${num(o.listeners) !== null ? '・リスナー' + fmtInt(o.listeners) : ''}${num(o.consume_pct) !== null ? '・消費率' + fmtPct(o.consume_pct) : ''}`, srcFW(o, 'plays_or_views'))])) : null,
     h('p', { class: 'pf-caution' }, '72時間遅延のため参考値。他のプラットフォームと順位を比べない。'),
-  ] : [h('p', { class: 'missing-block' }, 'Appleの初週は未取得')];
+    apView.pending ? h('p', { class: 'kv-others' }, val(`未承認の手入力: 合計${fmtInt(apView.pending.value)}`, srcManual(ix, apView.pending)), '（表示は承認済みの値を優先）') : null,
+  ] : apView.manual ? manualAppleBody(ix, apView.manual) : [h('p', { class: 'missing-block' }, 'Appleの初週は未取得')];
 
   const ytBody = yt ? [
     row('視聴回数', val(num(yt.plays_or_views) === null ? MISSING : `${fmtInt(yt.plays_or_views)}回`, srcFW(yt, 'plays_or_views'), 'big')),
@@ -167,9 +171,30 @@ export function firstWeekGrid(ix, n, noteSection) {
 
   return h('div', { class: 'pf-grid' },
     pfColumn('spotify', 'Spotify（全PF統合）', '#00CCBA', spBody, np.spotify, fwFlags(sp)),
-    pfColumn('apple', 'Apple（参考値）', '#8E6914', apBody, np.apple, fwFlags(ap)),
+    pfColumn('apple', 'Apple（参考値）', '#8E6914', apBody, np.apple, ap ? fwFlags(ap) : apView.manual ? [chip('手入力（未承認）', 'warn')] : []),
     pfColumn('yt', 'YouTube長尺', '#C0392B', ytBody, np.youtube_long, fwFlags(yt)),
     pfColumn('shorts', count > 1 ? `YouTube Shorts（${count}本）` : 'YouTube Shorts', '#6A3FA0', shBody, np.shorts, fwFlags(sh)));
+}
+
+function srcManual(ix, r) {
+  return [
+    `出典: apple_manual_inputs（受付ID ${r.id}・${APPLE_STATUS_JA[r.status] || r.status}）。人が Apple Podcasts Connect のトレンドタブで読んだ値`,
+    `期間: ${r.period_start || '未記録'}〜${r.period_end || '未記録'}（UTC・公開日から7日）`,
+    Array.isArray(r.daily_values) ? `日別: ${r.daily_values.join('・')}（合計 ${fmtInt(r.value)}）` : '日別の内訳なし',
+    `入力: ${memberName(ix.bundle, r.entered_by)}・${fmtDateTime(r.entered_at)}`,
+    r.source_note ? `出典メモ: ${truncate(r.source_note, 300)}` : '',
+    '承認前の値。承認されると episode_first_week_metrics の行に置き換わる',
+  ];
+}
+
+function manualAppleBody(ix, r) {
+  return [
+    row('再生数', val(fmtInt(r.value), srcManual(ix, r), 'big'), '（日別合計・手入力）'),
+    row('期間', val(`${fmtYMD(r.period_start)}〜${fmtYMD(r.period_end)}`, srcManual(ix, r))),
+    Array.isArray(r.daily_values) ? row('日別', val(r.daily_values.join('・'), srcManual(ix, r))) : null,
+    row('入力', `${memberName(ix.bundle, r.entered_by)}・${fmtDateTime(r.entered_at)}`),
+    h('p', { class: 'pf-caution' }, '手入力（未承認）。承認前の参考値で、72時間遅延のこともある。他のプラットフォームと順位を比べない。'),
+  ];
 }
 
 // ── リテンション ─────────────────────────────────────────────────────

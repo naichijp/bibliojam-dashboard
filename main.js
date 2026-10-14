@@ -13,9 +13,44 @@ import { renderEpisodes } from './views/episodes.js';
 import { renderEpisode } from './views/episode.js';
 import { renderStatus } from './views/status.js';
 import { renderMonth, renderMonths } from './views/month.js';
+import { createCollab, collabContext, roleLabel, ROLES } from './lib/collab.js';
 
 const app = document.getElementById('app');
-const state = { ix: null, meta: null };
+const state = { ix: null, meta: null, client: null, cx: null };
+
+// 書き込み機能の文脈（views/collab.js が使う）。ローカル表示では writable=false
+function makeCx() {
+  const base = collabContext(state.ix.bundle, state.meta);
+  const cx = {
+    ...base,
+    flash: state.cx?.flash || new Map(),
+    editing: null,
+    bundle: () => state.ix.bundle,
+    ix: () => state.ix,
+    rerender: opts => route({ keepScroll: true, ...(opts || {}) }),
+    refreshData,
+    // 読み直し：書きかけの編集は捨てる（古い版の上に書き戻さない）
+    reload: async () => {
+      cx.editing = null; cx.setDirty(false);
+      try { await refreshData(); } catch (e) { showLoadError(e); return; }
+      route({ keepScroll: true });
+    },
+    relogin: async () => { await signOut().catch(() => {}); location.reload(); },
+    setDirty: on => { window.onbeforeunload = on ? e => { e.preventDefault(); e.returnValue = ''; return ''; } : null; },
+  };
+  cx.collab = createCollab({ client: base.writable ? state.client : null, getBundle: () => state.ix.bundle, reload: refreshData });
+  return cx;
+}
+
+// bundle を読み直す（Apple の送信後など）。画面の描き直しは呼び出し側
+async function refreshData() {
+  const { bundle, meta, client } = await loadBundle();
+  state.ix = indexBundle(bundle);
+  state.meta = meta;
+  state.client = client || null;
+  // client は同じもの（supabase-js の client・擬似RPC はどちらも使い回し）。権限などの文脈だけ更新する
+  Object.assign(state.cx, collabContext(bundle, meta));
+}
 
 const NAV = [
   ['week', '週次レポート'],
@@ -36,7 +71,14 @@ function shell() {
     h('div', { class: 'top-in' },
       h('a', { class: 'brand', href: '#/week' }, h('span', { class: 'logo-b' }, 'BIBLIO'), h('span', { class: 'logo-j' }, ' JAM'), h('span', { class: 'brand-sub' }, 'レポート')),
       h('nav', { class: 'nav', 'aria-label': '画面' }, NAV.map(([k, t]) => h('a', { href: `#/${k}`, 'data-nav': k }, t))),
+      state.cx?.writable && state.cx.viewer ? h('span', { class: 'who', title: state.cx.viewer.email || '' }, `${state.cx.viewer.display_name || state.cx.viewer.email}・${roleLabel(state.cx.viewer.role)}`) : null,
       state.meta.mode === 'remote' ? h('button', { type: 'button', class: 'btn small ghost', onclick: async () => { await signOut(); location.reload(); } }, 'ログアウト') : null));
+  const mockBanner = state.meta.mode === 'mock'
+    ? h('div', { class: 'banner mock', role: 'note' },
+      h('strong', null, '擬似RPC（?mode=mock）'),
+      ' 手元の画面確認用です。書き込みはメモリだけで、DBには送りません（ページを再読み込みすると消えます）。権限を切り替える: ',
+      ROLES.map((r, i) => [i ? '・' : '', h('a', { href: `${location.pathname}?mode=mock&role=${r}${location.hash}` }, roleLabel(r))]))
+    : null;
   const banner = sample
     ? h('div', { class: 'banner sample', role: 'note' },
       h('strong', null, 'サンプルデータ'),
@@ -47,11 +89,12 @@ function shell() {
   const foot = h('footer', { class: 'foot' },
     h('p', null, `データ: ${state.meta.path}　|　bundle生成: ${state.ix.bundle.built_at ? fmtDateTime(state.ix.bundle.built_at) : '記録なし'}　|　DB書き出し: ${state.ix.db.generated_at ? fmtDateTime(state.ix.db.generated_at) : '記録なし'}`),
     h('p', null, '数値の正本は Supabase（bibliojam-analytics / private）。画面は値を書き写さず、bundle の値をそのまま表示しています。数値にカーソルを合わせる（タップする）と出典が出ます。'));
-  app.append(...[header, banner, view, foot].filter(Boolean));
+  app.append(...[header, mockBanner, banner, view, foot].filter(Boolean));
 }
 
-function route() {
+function route({ keepScroll = false, focus = null } = {}) {
   if (!state.ix) return;
+  const y = window.scrollY;
   destroyCharts();
   const view = document.getElementById('view');
   clear(view);
@@ -60,19 +103,32 @@ function route() {
   const navKey = page === 'episode' ? 'episodes' : page === 'months' ? 'month' : page;
   for (const a of document.querySelectorAll('[data-nav]')) a.classList.toggle('on', a.dataset.nav === navKey);
   try {
-    if (page === 'week') { renderWeek(view, state.ix, parts[1]); document.title = `BIBLIO JAM 週次レポート${parts[1] ? ' W' + parts[1] : ''}`; }
+    if (page === 'week') { renderWeek(view, state.ix, parts[1], state.cx); document.title = `BIBLIO JAM 週次レポート${parts[1] ? ' W' + parts[1] : ''}`; }
     else if (page === 'month') { renderMonth(view, state.ix, parts[1]); document.title = `BIBLIO JAM 月次レポート${parts[1] ? ' ' + parts[1] : ''}`; }
     else if (page === 'months') { renderMonths(view, state.ix); document.title = 'BIBLIO JAM 月次の一覧'; }
     else if (page === 'trends') { renderTrends(view, state.ix); document.title = 'BIBLIO JAM 推移'; }
     else if (page === 'episodes') { renderEpisodes(view, state.ix); document.title = 'BIBLIO JAM 回の一覧'; }
-    else if (page === 'episode') { renderEpisode(view, state.ix, parts[1]); document.title = `BIBLIO JAM EP#${parts[1]}`; }
+    else if (page === 'episode') { renderEpisode(view, state.ix, parts[1], state.cx); document.title = `BIBLIO JAM EP#${parts[1]}`; }
     else if (page === 'status') { renderStatus(view, state.ix, state.meta); document.title = 'BIBLIO JAM データの状態'; }
     else { location.replace('#/week'); return; }
   } catch (e) {
     console.error(e);
     view.append(h('section', { class: 'card error' }, h('h2', null, '表示中にエラーが起きました'), h('pre', null, String(e && e.stack || e))));
   }
-  window.scrollTo(0, 0);
+  if (!keepScroll) { window.scrollTo(0, 0); return; }
+  // 書き込みの後の描き直し：位置を保ち、知らせを出した欄が見えるようにする
+  window.scrollTo(0, y);
+  if (focus) requestAnimationFrame(() => document.getElementById(focus)?.scrollIntoView({ block: 'nearest' }));
+}
+
+function onHashChange() {
+  if (state.cx?.editing?.dirty && !window.confirm('保存していない文章があります。移動すると消えます。移動しますか？')) {
+    history.replaceState(null, '', state.lastHash || '#/week');
+    return;
+  }
+  if (state.cx) { state.cx.editing = null; state.cx.setDirty(false); }
+  state.lastHash = location.hash;
+  route();
 }
 
 function renderSetup(err) {
@@ -141,17 +197,24 @@ function renderFatal(e) {
 async function boot() {
   initTooltips();
   try {
-    const { bundle, meta } = await loadBundle();
+    const { bundle, meta, client } = await loadBundle();
     state.ix = indexBundle(bundle);
     state.meta = meta;
+    state.client = client || null;
+    state.cx = makeCx();
+    state.lastHash = location.hash;
     shell();
     route();
-    window.addEventListener('hashchange', route);
+    window.addEventListener('hashchange', onHashChange);
   } catch (e) {
-    if (e instanceof LoginRequired) renderLogin(e);
-    else if (e instanceof SetupError) renderSetup(e);
-    else { console.error(e); renderFatal(e); }
+    showLoadError(e);
   }
+}
+
+function showLoadError(e) {
+  if (e instanceof LoginRequired) renderLogin(e);
+  else if (e instanceof SetupError) renderSetup(e);
+  else { console.error(e); renderFatal(e); }
 }
 
 boot();
