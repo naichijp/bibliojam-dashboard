@@ -190,8 +190,13 @@ function renderLogin(err) {
 
 function renderFatal(e) {
   clear(app);
+  // 公開版（remote）では DB への接続の問題。手元の確認（local・mock）では配信のしかたの問題のことが多い
+  const hint = currentMode() === 'remote'
+    ? '時間をおいて読み込み直してください。続くときは、上の文をそのまま管理者（内藤）に送ってください。'
+    : 'python3 -m http.server で app/ を配信しているか確認してください（file:// では読み込めません）。';
   app.append(h('section', { class: 'card error' }, h('h1', null, 'データを読み込めませんでした'), h('p', null, String(e && e.message || e)),
-    h('p', null, 'python3 -m http.server で app/ を配信しているか確認してください（file:// では読み込めません）。')));
+    h('p', null, hint),
+    currentMode() === 'remote' ? h('p', null, h('button', { type: 'button', class: 'btn small', onclick: () => location.reload() }, '読み込み直す')) : null));
 }
 
 async function boot() {

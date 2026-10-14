@@ -2,7 +2,7 @@
 import { h, val } from '../lib/dom.js';
 import {
   num, weekWindow, firstWeekFor, retentionFor, retentionAverage, diffPt, cleanTs5s, isLongForm,
-  cliffsFor, cliffClassJa, dialogFor, epLabel, Q_KEYS, utcDate,
+  cliffsFor, cliffClassJa, dialogFor, epLabel, Q_KEYS, utcDate, isYoutubeApiRow, youtubeApiLabel, youtubeApiCompare,
 } from '../lib/metrics.js';
 import {
   MISSING, fmtInt, fmtHours, fmtSigned, fmtMinutes, fmtMMSS, fmtDur, fmtWindow, fmtDateTime,
@@ -33,6 +33,7 @@ export function srcWeek(ix, week, field, extra) {
 
 export function firstWeekFlag(row) {
   if (!row) return '';
+  if (isYoutubeApiRow(row)) return youtubeApiLabel(row);   // 7日分だが Studio の168時間とは窓が違う（CONTRACT 1節）
   if (row.exact_first_week === true) return '初週（公開から7日）';
   if (row.exact_first_week === false) return '初週ではない（参考値）';
   return '初週かどうか未確認';
@@ -117,6 +118,20 @@ function fwFlags(main) {
   return f;
 }
 
+// YouTube の欄：Studio の主の行と、API の参考値の行を並べる（2026-10-14〜 API は参考値。正本は Studio）
+function ytApiLine(group) {
+  const c = youtubeApiCompare(group);
+  if (!c) return null;
+  const d = (x, unit, fmt) => (x ? `${fmt(x.api)}${unit}（Studio比 ${fmtSigned(x.diff, unit, unit === '回' ? 0 : 1)}${x.pct !== null ? `・${fmtSigned(x.pct, '%', 1)}` : ''}）` : null);
+  const parts = [
+    d(c.views, '回', fmtInt),
+    d(c.watch_hours, 'h', v => fmtNum(v, 1)),
+    c.api.avg_view_min !== null && c.api.avg_view_min !== undefined ? `平均視聴 ${fmtMinutes(c.api.avg_view_min)}` : null,
+  ].filter(Boolean);
+  return h('div', { class: 'kv-others' }, `${youtubeApiLabel(c.api)}: `,
+    val(parts.join('・') || '値なし', srcFW(c.api, 'plays_or_views', '窓の違い：API は太平洋時間の暦日7日（約160時間）、Studio は公開から168時間。差の多くはこの違い（docs/YouTube_API切り替え案.md 2-3）')));
+}
+
 function shortsCount(fw) {
   if (fw.shortsVideos.length > 1) return fw.shortsVideos.length;
   const m = String(fw.shorts.main?.notes || '').match(/Shorts[がは]?\s*(\d+)\s*本/);
@@ -163,6 +178,7 @@ export function firstWeekGrid(ix, n, noteSection) {
     row('総再生時間', val(num(yt.watch_hours) === null ? MISSING : `${fmtNum(yt.watch_hours, 1)}h`, srcFW(yt, 'watch_hours'))),
     row('平均視聴時間', val(fmtMinutes(yt.avg_view_min), srcFW(yt, 'avg_view_min'))),
     num(yt.unique_viewers) !== null ? row('ユニーク視聴者', val(`${fmtInt(yt.unique_viewers)}人`, srcFW(yt, 'unique_viewers'))) : null,
+    ytApiLine(fw.youtube_long),
   ] : [h('p', { class: 'missing-block' }, 'YouTube長尺の初週は未取得')];
 
   const count = shortsCount(fw);
@@ -174,6 +190,7 @@ export function firstWeekGrid(ix, n, noteSection) {
       : row('平均視聴時間', val(fmtMinutes(sh.avg_view_min), srcFW(sh, 'avg_view_min'))),
     fw.shortsVideos.length ? h('div', { class: 'kv-others' }, '内訳（youtube_videos）: ',
       fw.shortsVideos.map((v, i) => [i ? '／' : '', val(fmtInt(v.views_week1 ?? v.views_total), [`出典: youtube_videos（${v.video_id}）`, `${v.title || ''}`, v.views_week1 !== null && v.views_week1 !== undefined ? '値: views_week1（7日）' : '値: views_total（累計。7日値なし）'])])) : null,
+    ytApiLine(fw.shorts),
   ] : [h('p', { class: 'missing-block' }, 'Shortsの初週は未取得')];
 
   return h('div', { class: 'pf-grid' },
