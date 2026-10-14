@@ -2,14 +2,16 @@
 import { h, val } from '../lib/dom.js';
 import {
   num, weekWindow, firstWeekFor, retentionFor, retentionAverage, diffPt, cleanTs5s, isLongForm,
-  cliffsFor, cliffClassJa, dialogFor, epLabel, Q_KEYS,
+  cliffsFor, cliffClassJa, dialogFor, epLabel, Q_KEYS, utcDate,
 } from '../lib/metrics.js';
 import {
-  MISSING, fmtInt, fmtHours, fmtPct, fmtSigned, fmtMinutes, fmtMMSS, fmtDur, fmtWindow, fmtDateTime,
+  MISSING, fmtInt, fmtHours, fmtSigned, fmtMinutes, fmtMMSS, fmtDur, fmtWindow, fmtDateTime,
   fmtNum, statusJa, truncate, fmtYMD,
 } from '../lib/format.js';
 import { retentionChart, chartAvailable } from '../lib/charts.js';
-import { appleFirstWeekView, appleInputsFor, memberName, APPLE_STATUS_JA } from '../lib/collab.js';
+import {
+  appleFirstWeekView, appleInputsFor, appleConsumeView, consumeAsOfLabel, fmtConsume, memberName, APPLE_STATUS_JA, APPLE_CONSUME,
+} from '../lib/collab.js';
 
 // ── 出典テキスト ─────────────────────────────────────────────────────
 export function approvedText(row) {
@@ -138,17 +140,22 @@ export function firstWeekGrid(ix, n, noteSection) {
   const apOthers = fw.apple.others;
   // Apple の手入力（公開版の bundle.apple_inputs）。approved の行があればそちらを優先し、無いときだけ「手入力（未承認）」を出す
   const apView = appleFirstWeekView(ap, appleInputsFor(ix.bundle, n));
+  // 平均消費率（全期間）：first_week の Apple 行（approved）の consume_pct を優先、無ければ承認前の手入力（2026-10-14〜 人が入力）
+  const cView = appleConsumeView([ap, ...fw.apple.others], appleInputsFor(ix.bundle, n, APPLE_CONSUME));
+  const consumeRow = appleConsumeRow(ix, n, cView);
   const apBody = ap ? [
     row('再生数', val(fmtInt(ap.plays_or_views), srcFW(ap, 'plays_or_views'), 'big'),
       ap.data_type === 'first_week' ? '（日別合計）' : '（全期間の値）'),
     num(ap.listeners) !== null ? row('リスナー', val(`${fmtInt(ap.listeners)}人`, srcFW(ap, 'listeners'))) : null,
-    num(ap.consume_pct) !== null ? row('消費率', val(fmtPct(ap.consume_pct), srcFW(ap, 'consume_pct'))) : null,
+    consumeRow,
     row('期間', val(ap.period_start ? `${fmtYMD(ap.period_start)}〜${fmtYMD(ap.period_end)}` : MISSING, srcFW(ap, 'period_start'))),
     apOthers.length ? h('div', { class: 'kv-others' }, '別の取り方: ', apOthers.map((o, i) => [i ? '／' : '',
-      val(`${o.data_type === 'reference' ? '全期間' : o.data_type || '別行'} 再生${fmtInt(o.plays_or_views)}${num(o.listeners) !== null ? '・リスナー' + fmtInt(o.listeners) : ''}${num(o.consume_pct) !== null ? '・消費率' + fmtPct(o.consume_pct) : ''}`, srcFW(o, 'plays_or_views'))])) : null,
+      val(`${o.data_type === 'reference' ? '全期間' : o.data_type || '別行'} 再生${fmtInt(o.plays_or_views)}${num(o.listeners) !== null ? '・リスナー' + fmtInt(o.listeners) : ''}${num(o.consume_pct) !== null ? '・消費率' + fmtConsume(o.consume_pct) : ''}`, srcFW(o, 'plays_or_views'))])) : null,
     h('p', { class: 'pf-caution' }, '72時間遅延のため参考値。他のプラットフォームと順位を比べない。'),
     apView.pending ? h('p', { class: 'kv-others' }, val(`未承認の手入力: 合計${fmtInt(apView.pending.value)}`, srcManual(ix, apView.pending)), '（表示は承認済みの値を優先）') : null,
-  ] : apView.manual ? manualAppleBody(ix, apView.manual) : [h('p', { class: 'missing-block' }, 'Appleの初週は未取得')];
+  ] : apView.manual ? [...manualAppleBody(ix, apView.manual), consumeRow]
+    : cView.show !== 'none' ? [h('p', { class: 'missing-block' }, 'Appleの初週の再生は未取得'), consumeRow]
+      : [h('p', { class: 'missing-block' }, 'Appleの初週は未取得')];
 
   const ytBody = yt ? [
     row('視聴回数', val(num(yt.plays_or_views) === null ? MISSING : `${fmtInt(yt.plays_or_views)}回`, srcFW(yt, 'plays_or_views'), 'big')),
@@ -171,7 +178,7 @@ export function firstWeekGrid(ix, n, noteSection) {
 
   return h('div', { class: 'pf-grid' },
     pfColumn('spotify', 'Spotify（全PF統合）', '#00CCBA', spBody, np.spotify, fwFlags(sp)),
-    pfColumn('apple', 'Apple（参考値）', '#8E6914', apBody, np.apple, ap ? fwFlags(ap) : apView.manual ? [chip('手入力（未承認）', 'warn')] : []),
+    pfColumn('apple', 'Apple（参考値）', '#8E6914', apBody, np.apple, ap ? fwFlags(ap) : apView.manual || cView.manual ? [chip('手入力（未承認）', 'warn')] : []),
     pfColumn('yt', 'YouTube長尺', '#C0392B', ytBody, np.youtube_long, fwFlags(yt)),
     pfColumn('shorts', count > 1 ? `YouTube Shorts（${count}本）` : 'YouTube Shorts', '#6A3FA0', shBody, np.shorts, fwFlags(sh)));
 }
@@ -184,6 +191,35 @@ function srcManual(ix, r) {
     `入力: ${memberName(ix.bundle, r.entered_by)}・${fmtDateTime(r.entered_at)}`,
     r.source_note ? `出典メモ: ${truncate(r.source_note, 300)}` : '',
     '承認前の値。承認されると episode_first_week_metrics の行に置き換わる',
+  ];
+}
+
+// 平均消費率の行（承認済み → 手入力（未承認）→ 未取得）
+function appleConsumeRow(ix, n, v) {
+  if (v.show === 'approved') {
+    const r = v.approved;
+    const kind = r.data_type === 'reference' ? '全期間の値・取得時点の参考値' : r.data_type === 'first_week' ? '初週の行' : (r.data_type || '別の行');
+    return [
+      row('平均消費率', val(fmtConsume(r.consume_pct), srcFW(r, 'consume_pct')), `（承認済み・${kind}）`),
+      v.pending ? h('p', { class: 'kv-others' }, val(`未承認の手入力: 消費率 ${fmtConsume(v.pending.value)}（${consumeAsOfLabel(v.pending)}）`, srcManualConsume(ix, n, v.pending)), '（表示は承認済みの値を優先）') : null];
+  }
+  if (v.show === 'manual') {
+    const r = v.manual;
+    return [
+      row('平均消費率', val(fmtConsume(r.value), srcManualConsume(ix, n, r)), `（手入力（未承認）・${consumeAsOfLabel(r)}）`),
+      h('p', { class: 'pf-caution' }, '平均消費率は手入力（未承認）。エピソード個別ページの全期間の値で、読んだ日によって変わる。')];
+  }
+  return row('平均消費率', val(MISSING, ['平均消費率（全期間）は未取得', '2026-10-14〜：配信7日目以降に、エピソード個別ページの全期間の値を人が読んで入れる']));
+}
+
+function srcManualConsume(ix, n, r) {
+  const pub = utcDate(ix.epByNum.get(n)?.published_at);
+  return [
+    `出典: apple_manual_inputs（受付ID ${r.id}・${APPLE_STATUS_JA[r.status] || r.status}）。人が Apple Podcasts Connect のエピソード個別ページで読んだ、全期間の平均消費率`,
+    `期間: 公開日 ${pub || '未登録'}〜読んだ日 ${r.period_end || '未記録'}（UTC。DBは始まりの日を空で保存する）`,
+    `入力: ${memberName(ix.bundle, r.entered_by)}・${fmtDateTime(r.entered_at)}`,
+    r.source_note ? `出典メモ: ${truncate(r.source_note, 300)}` : '',
+    '承認前の値',
   ];
 }
 

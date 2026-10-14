@@ -7,6 +7,7 @@ import {
 } from '../lib/format.js';
 import {
   listMonths, defaultMonthKey, getMonth, monthNotes, monthRule, classifySlides, slideParagraphs, monthExclusions, AREA_JA,
+  slideHeading, isWrittenSlide, isWrittenMonth, slideFilled, writtenProgress,
   weekBasis, monthWeekly, monthFirstWeek, monthDiscovery, monthYouTube, monthApple, monthRetention, monthAudience,
   monthRanking, monthDataStatus, MONTH_STATUS_JA, AUD_GROUPS, hasMonthly,
 } from '../lib/monthly.js';
@@ -37,7 +38,7 @@ export function renderMonths(root, ix) {
     sectionHead('一覧', `月次 ${rows.length}件`, `既定で開く月：${def}（status が proposed でない最新の月）`),
     h('div', { class: 'tbl-scroll' }, h('table', { class: 'tbl resp months-tbl' },
       h('thead', null, h('tr', null, ['月（表紙の終わり）', '表紙の期間（JST）', 'UTCの窓', '対象週', '対象回', '前期', '状態', '文章'].map(t => h('th', null, t)))),
-      h('tbody', null, rows.map(({ key, mw, statusJa: st, hasNotes }) => h('tr', { class: mw.status === 'proposed' ? 'proposed' : '' },
+      h('tbody', null, rows.map(({ key, mw, statusJa: st, hasNotes, written }) => h('tr', { class: mw.status === 'proposed' ? 'proposed' : '' },
         h('td', { 'data-label': '月' }, h('a', { href: `#/month/${key}` }, key), key === def ? chip('既定', 'gold') : null),
         h('td', { 'data-label': '表紙' }, mw.cover_label_jst || MISSING),
         h('td', { 'data-label': 'UTCの窓', class: 'small' }, mw.utc_start ? `${fmtYMD(mw.utc_start)}〜${fmtYMD(mw.utc_end)}` : '記録なし（移行前）'),
@@ -45,7 +46,7 @@ export function renderMonths(root, ix) {
         h('td', { 'data-label': '対象回' }, epsTxt(mw.episodes)),
         h('td', { 'data-label': '前期', class: 'small' }, mw.prev_weeks ? `${wks(mw.prev_weeks)}・${epsTxt(mw.prev_episodes)}` : 'なし'),
         h('td', { 'data-label': '状態' }, statusChip(mw)),
-        h('td', { 'data-label': '文章', class: 'small' }, hasNotes ? 'あり' : mw.status === 'proposed' ? '—（PPTXなし）' : 'なし')))))),
+        h('td', { 'data-label': '文章', class: 'small' }, written ? `手書き（${written.filled}/${written.total}節${written.status === 'draft' ? '・下書き' : ''}）` : hasNotes ? 'あり' : mw.status === 'proposed' ? '—（PPTXなし）' : 'なし')))))),
     monthRule(ix) ? h('p', { class: 'calc-note' }, `決め方：${monthRule(ix)}`) : null));
 }
 
@@ -98,6 +99,7 @@ function toolbar(ix, key) {
 // ── 共通部品 ─────────────────────────────────────────────────────────
 function slideBox(slide, { open = false, human = false } = {}) {
   if (!slide) return null;
+  if (isWrittenSlide(slide)) return writtenBox(slide, { open, human });
   const { heading, analysis, rest } = slideParagraphs(slide);
   // 短い段落（タイルの数字・ラベル・バッジ）は1行にまとめ、長い段落は箇条書きにする（順番は保つ）
   const longs = rest.filter(t => t.length > 24), shorts = rest.filter(t => t.length <= 24);
@@ -109,12 +111,24 @@ function slideBox(slide, { open = false, human = false } = {}) {
     shorts.length ? h('p', { class: 'report-short' }, shorts.join('　｜　')) : null);
 }
 
+// 手で書いた文章（手で書く月）。見出し（title）と段落（texts）をそのまま出す。空のスライドは出さない
+function writtenBox(slide, { open = false, human = false } = {}) {
+  if (!slideFilled(slide)) return null;
+  const { heading, analysis } = slideParagraphs(slide);
+  return h('details', { class: `report written ${human ? 'human' : ''}`.trim(), open: open ? true : null },
+    h('summary', null, `手で書いた文章${heading ? '：' + heading : ''}`),
+    h('p', { class: 'report-note' }, human ? '人の分析・判断です（手で書いた文章）。数値はこの画面が DB から出しています。' : '手で書いた文章です。数値はこの画面が DB から出しています。'),
+    analysis.map(t => h('p', { class: 'report-analysis' }, t)));
+}
+
 function reportBoxes(slides, opts) {
   if (!slides || !slides.length) return null;
-  return h('div', { class: 'report-wrap' }, slides.map(s => slideBox(s, opts)));
+  const boxes = slides.map(s => slideBox(s, opts)).filter(Boolean);
+  return boxes.length ? h('div', { class: 'report-wrap' }, boxes) : null;
 }
 
 function noReport(ctx, what = 'このページ') {
+  if (ctx.notes && isWrittenMonth(ctx.notes)) return h('p', { class: 'note-missing' }, `${what}の文章はまだ書かれていません（手で書く月${ctx.notes.review?.status === 'draft' ? '・下書き' : ''}）。`);
   if (ctx.mw.status === 'proposed') return h('p', { class: 'note-missing' }, `予定の月のため月次PPTXの文章はありません（${what}）。`);
   if (!ctx.notes) return h('p', { class: 'note-missing' }, 'この月の月次PPTXの文章（notes_monthly）は bundle にありません。');
   return h('p', { class: 'note-missing' }, `この月の月次PPTXに${what}に当たるスライドはありません。`);
@@ -187,12 +201,20 @@ function cover({ ix, key, mw, notes, weekly }) {
         : `集計期間: ${mw.cover_label_jst}（リリース影響週への移行前。UTC の窓の記録なし）`),
       h('p', { class: 'cover-window' }, `対象週: ${wks(mw.weeks)}（${(mw.weeks || []).length}週・確定 ${approved}/${(mw.weeks || []).length}）　前期: ${mw.prev_weeks ? `${wks(mw.prev_weeks)}・${epsTxt(mw.prev_episodes)}` : 'なし'}`),
       mw.status === 'superseded' ? h('p', { class: 'cover-badge draft' }, `この版は ${mw.superseded_by} 版に延長されました。比較・推移には `, h('a', { href: `#/month/${mw.superseded_by}` }, `${mw.superseded_by} 版`), ' を使います。') : null,
-      mw.status === 'proposed' ? h('p', { class: 'cover-badge' }, '予定（未確定）：これまでの決め方を当てはめた案です。月次PPTXはまだありません。') : null,
+      mw.status === 'proposed' ? h('p', { class: 'cover-badge' }, `予定（未確定）：これまでの決め方を当てはめた案です。${notes && isWrittenMonth(notes) ? 'この月から月次PPTXは作らず、数値はこの画面、文章（見出し・分析・次月の実験）は手で書きます。' : '月次PPTXはまだありません。'}`) : null,
       h('p', { class: 'cover-h' }, `対象回（${(mw.episodes || []).length}本）`),
       h('ul', { class: 'cover-eps' }, epItems),
       mw.episodes_note ? h('p', { class: 'cover-db' }, mw.episodes_note) : null,
       h('p', { class: 'cover-db' }, mw.pptx ? `月次PPTX: ${mw.pptx.split('/').pop()}${notes ? `（文章は ${notes.extractor || '抽出'}・${fmtYMD(notes.extracted_at)} 抽出）` : ''}` : '月次PPTX: なし'),
+      notes && isWrittenMonth(notes) ? h('p', { class: 'cover-db' }, writtenCoverText(notes)) : null,
       final && !notes ? h('p', { class: 'cover-db' }, '文章（notes_monthly）が bundle にありません') : null));
+}
+
+function writtenCoverText(notes) {
+  const p = writtenProgress(notes);
+  const r = notes.review || {};
+  const st = r.status === 'draft' ? '下書き' : r.status || '状態未記録';
+  return `文章: 手で書く月（${st}・${r.written_by || '書いた人未記録'}・${notes.written_at ? fmtYMD(notes.written_at) + ' 作成' : '作成日未記録'}・記入済み ${p.filled}/${p.total}節${r.basis ? `・${r.basis}` : ''}）。数値はこの画面が DB から出す`;
 }
 
 // ── 窓と判断（month_windows のうち人の判断・期間のずれ） ───────────────
@@ -248,7 +270,7 @@ function summary(ctx) {
     h('li', null, '再生÷日次ユニーク ', val(ratio.ratioLabel === null ? MISSING : `${ratio.ratioLabel}倍`, ['Spotify の日次再生（daily_metrics）の窓内合計 ÷ 日次オーディエンス（csv_extras.daily.spotify_audience）の窓内合計', `${ratio.present}/${ratio.of}日そろい`]),
       ratioP ? `（前期${ratioP.ratioLabel === null ? MISSING : ratioP.ratioLabel + '倍'}）` : ''));
   return h('section', { id: 'sec-m-summary', class: 'card' },
-    sectionHead('サマリー', slides.summary[0] ? slides.summary[0].texts[0] : '月次サマリー',
+    sectionHead('サマリー', slideHeading(slides.summary[0]) || '月次サマリー',
       `集計期間: ${wks(mw.weeks)}${mw.utc_start ? ` = リリース影響週 UTC ${fmtYMD(mw.utc_start)}〜${fmtYMD(mw.utc_end)}` : ''}  |  ${epsTxt(mw.episodes)} 配信`),
     proposedNote(ctx), tiles, ref,
     exclusionList(ctx.ex.filter(e => e.area === 'weekly' && e.effect?.type === 'adjust'), { title: '除外（感度分析）' }),
@@ -295,7 +317,7 @@ function weekly(ctx) {
     `。${ratio.threshold}倍超は${ratio.of}日中${ratio.over === null ? MISSING : ratio.over + '日'}${rp ? `（前期${rp.over === null ? MISSING : rp.over + '日'}）` : ''}`,
     ratio.max ? `。最も高い日は ${md(ratio.max.date)}（UTC）の ${ratio.max.plays}再生／${ratio.max.audience}人（${round(ratio.max.ratio, 2)}倍）` : '');
   return h('section', { id: 'sec-m-weekly', class: 'card' },
-    sectionHead('週次トレンド', slides.weekly[0]?.texts[0] || '週次再生数トレンド  [Spotify／全PF]', `${w.prev ? wks(mw.prev_weeks) + '（前期）・' : ''}${wks(mw.weeks)}（当期）  |  週の値: ${w.basis.label}`),
+    sectionHead('週次トレンド', slideHeading(slides.weekly[0]) || '週次再生数トレンド  [Spotify／全PF]', `${w.prev ? wks(mw.prev_weeks) + '（前期）・' : ''}${wks(mw.weeks)}（当期）  |  週の値: ${w.basis.label}`),
     proposedNote(ctx), chart, canDraw ? legend : null,
     h('ul', { class: 'ref-list' },
       avgLine(w.cur, '当期週平均'), avgLine(w.prev, '前期週平均'),
@@ -322,7 +344,7 @@ function discovery(ctx) {
   void pubIdx;
   const srcList = ['home', 'search', 'library', 'other'].map(k => [k, { home: 'ホーム', search: '検索', library: 'ライブラリ', other: 'その他' }[k]]);
   return h('section', { id: 'sec-m-disc', class: 'card' },
-    sectionHead('発見', slides.discovery[0]?.texts[0] || '発見インプレッションとCVR  [Spotify]',
+    sectionHead('発見', slideHeading(slides.discovery[0]) || '発見インプレッションとCVR  [Spotify]',
       `過去30日${d.monthly.period ? `（${d.monthly.period.label}・${d.mw.weeks?.length ? 'W' + d.mw.weeks.at(-1) : ''}取得時点）` : ''}｜インプレッション${fmtInt(d.last?.impressions)}${d.before ? `（前回 W${d.before.week} ${fmtInt(d.before.impressions)}から${pct1(d.lastChangePct)}）` : ''}→ CVR${d.last?.cvr ?? MISSING}${d.last?.cvr !== null && d.last?.cvr !== undefined ? '%' : ''}｜期間内の日次インプレッション合計${fmtInt(d.dailySum)}`),
     proposedNote(ctx),
     h('div', { class: 'two-col' },
@@ -354,7 +376,7 @@ function hbar(label, value, max, text, color, src) {
 function deep(ctx) {
   const { slides } = ctx;
   return h('section', { id: 'sec-m-deep', class: 'card' },
-    sectionHead('深堀り', slides.deep[0]?.texts[0] || '深堀り', '照合メモ（ts5s×発話）にもとづく人の分析。各回の曲線と崖は下のリテンションの節で DB から描いています。'),
+    sectionHead('深堀り', slideHeading(slides.deep[0]) || '深堀り', '照合メモ（ts5s×発話）にもとづく人の分析。各回の曲線と崖は下のリテンションの節で DB から描いています。'),
     reportBoxes(slides.deep, { open: true, human: true }) || noReport(ctx, '深堀り'),
     exclusionList(ctx.ex.filter(e => e.area === 'deep')));
 }
@@ -370,7 +392,7 @@ function youtube(ctx) {
   const ps = yt.prevStats, pa = yt.prevStatsAll;
   const callout = (r, value, label) => (r ? h('div', { class: 'callout' }, h('span', { class: 'callout-v' }, value), h('span', { class: 'callout-l' }, `#${r.ep} ${label}`)) : null);
   return h('section', { id: 'sec-m-yt', class: 'card' },
-    sectionHead('YouTube', slides.youtube[0]?.texts[0] || 'YouTube 分析（長尺動画）', `${wks(mw.weeks)}  |  ※${epsTxt(mw.episodes)}・Shorts除く。7日値（episode_first_week_metrics の youtube・long）`),
+    sectionHead('YouTube', slideHeading(slides.youtube[0]) || 'YouTube 分析（長尺動画）', `${wks(mw.weeks)}  |  ※${epsTxt(mw.episodes)}・Shorts除く。7日値（episode_first_week_metrics の youtube・long）`),
     proposedNote(ctx),
     h('div', { class: 'callouts' },
       callout(yt.top.imp, yt.top.imp ? `約${fmtInt(yt.top.imp.imp7)}` : '', 'インプレッション（当月最多）'),
@@ -411,7 +433,7 @@ function heatmap(ctx) {
   const avgRow = (label, a) => (a ? h('tr', { class: 'heat-avg' }, h('th', { scope: 'row' }, label), Q_KEYS.map(k => h('td', null, a.metrics[k].avg === null ? MISSING : `${fmtNum(a.metrics[k].avg, 1)}%`)), h('td', { class: 'small' }, `n=${a.n}${Q_KEYS.some(k => a.metrics[k].missing) ? '（欠損あり）' : ''}`)) : null);
   const exEps = ret.excluded.flatMap(e => e.effect.eps);
   return h('section', { id: 'sec-m-heat', class: 'card' },
-    sectionHead('リテンション', slides.heatmap[0]?.texts[0] || `Spotify リテンション全体サマリー  [${epsTxt(mw.episodes)}]`, '出典: episode_retention（approved・各回の最新1件）。型は retention_type'),
+    sectionHead('リテンション', slideHeading(slides.heatmap[0]) || `Spotify リテンション全体サマリー  [${epsTxt(mw.episodes)}]`, '出典: episode_retention（approved・各回の最新1件）。型は retention_type'),
     proposedNote(ctx),
     h('div', { class: 'heat-wrap' }, h('table', { class: 'heat' },
       h('thead', null, h('tr', null, ['EP', 'Q1 (25%)', 'Q2 (50%)', 'Q3 (75%)', 'Complete (100%)', '型'].map(t => h('th', null, t)))),
@@ -456,14 +478,14 @@ function epRetention(ctx, n) {
     body,
     r?.ret ? h('div', { class: 'cliff-grid' }, cliffTable(ix, n, `崖（episode_cliffs・${r.cliffs.length}件）`)) : null,
     r?.ret ? h('p', { class: 'calc-note' }, `曲線は ts5s（5秒刻み・${r.ts5s.length}点）を階段状に描画。崖の時刻と落差は DB、その区間で何を話していたかは照合メモ（人の読み取り）。`) : null,
-    slide ? slideBox(slide, { open: true }) : noReport(ctx, `EP#${n} の回のページ`));
+    (slide && slideBox(slide, { open: true })) || noReport(ctx, `EP#${n} の回のページ`));
 }
 
 // ── p12 仮説・次月の実験（人の分析） ────────────────────────────────
 function hypotheses(ctx) {
   const { slides } = ctx;
   return h('section', { id: 'sec-m-hypo', class: 'card dark-lite' },
-    sectionHead('仮説・次月', slides.hypotheses[0]?.texts[0] || '過去回での仮説確認と、次月の検証', '人の判断（実験の判定・次月の実験・運用メモ）。月次PPTXの文章をそのまま表示'),
+    sectionHead('仮説・次月', slideHeading(slides.hypotheses[0]) || '過去回での仮説確認と、次月の検証', `人の判断（実験の判定・次月の実験・運用メモ）。${isWrittenMonth(ctx.notes) ? '手で書いた文章' : '月次PPTXの文章をそのまま表示'}`),
     reportBoxes(slides.hypotheses, { open: true, human: true }) || noReport(ctx, '仮説・次月の実験'));
 }
 
@@ -471,18 +493,23 @@ function hypotheses(ctx) {
 function other(ctx) {
   const { slides } = ctx;
   if (!slides.other.length) return null;
+  const boxes = reportBoxes(slides.other, { human: true });
+  if (!boxes) return null;
   return h('section', { id: 'sec-m-other', class: 'card' },
-    sectionHead('その他', 'この月だけのスライド', '9月月次の16枚の並びに当てはまらないスライド。月次PPTXの文章をそのまま表示'),
-    reportBoxes(slides.other, { human: true }));
+    sectionHead('その他', 'この月だけのスライド', isWrittenMonth(ctx.notes)
+      ? '節の名前（section）が画面の節に当たらない文章（回番号の無い retention_ep を含む）。捨てずにここに出しています'
+      : '9月月次の16枚の並びに当てはまらないスライド。月次PPTXの文章をそのまま表示'),
+    boxes);
 }
 
 // ── p13 APPENDIX ────────────────────────────────────────────────────
 function appendix(ctx) {
   const s = ctx.slides.appendix[0];
+  const w = isWrittenSlide(s);
   return h('section', { class: 'card appendix' },
-    h('p', { class: 'kicker' }, s ? s.texts[0] : 'APPENDIX'),
-    h('h2', null, s?.texts[1] || 'Apple分析（公開7日）・オーディエンス属性・EP累積ランキング'),
-    h('p', { class: 'sub' }, s?.texts[2] || '本編の結論を補強する詳細データ集'));
+    h('p', { class: 'kicker' }, (s && !w ? s.texts?.[0] : null) || 'APPENDIX'),
+    h('h2', null, (w ? slideHeading(s) : s?.texts?.[1]) || 'Apple分析（公開7日）・オーディエンス属性・EP累積ランキング'),
+    h('p', { class: 'sub' }, (w ? slideParagraphs(s).analysis.join(' ') : s?.texts?.[2]) || '本編の結論を補強する詳細データ集'));
 }
 
 // ── p14 Apple ───────────────────────────────────────────────────────
@@ -492,7 +519,7 @@ function apple(ctx) {
   const any = a.rows.some(r => r.plays !== null || r.playsAny !== null);
   const methodJa = r => (r.method === 'daily_sum' ? '公開日からUTC 7日の日別合計' : r.method ? `参考値（${r.main?.data_type || '種類未記録'}・${r.main?.exact_first_week ? '7日' : '7日確定ではない'}）` : MISSING);
   return h('section', { id: 'sec-m-apple', class: 'card' },
-    sectionHead('Apple（APPENDIX）', slides.apple[0]?.texts[0] || 'Apple Podcasts 分析（公開7日）', `${mw.cover_label_jst}  |  再生数＝${a.allExact ? 'UTC7日合計' : '取得方法は回ごと（下の表）'}／消費率＝取得時点の参考値`),
+    sectionHead('Apple（APPENDIX）', slideHeading(slides.apple[0]) || 'Apple Podcasts 分析（公開7日）', `${mw.cover_label_jst}  |  再生数＝${a.allExact ? 'UTC7日合計' : '取得方法は回ごと（下の表）'}／消費率＝取得時点の参考値`),
     proposedNote(ctx),
     any ? chartBox('chart-mapple', 'Apple Podcastsの再生数と平均消費率', c => appleMonthChart(c, rows)) : h('p', { class: 'missing-block' }, 'Appleの値が未取得'),
     h('div', { class: 'tbl-scroll' }, h('table', { class: 'tbl resp' },
@@ -520,7 +547,7 @@ function audience(ctx) {
         it.derived ? ['100 − 日本 − 米国（monthly_reference にその他の行が無い月。月次スクリプトのコメントどおり）'] : [`出典: monthly_reference ${mw.report_month}.${it.row?.metric_key || '（行なし）'}`, it.row ? `期間: ${it.row.period_start}〜${it.row.period_end}` : '']))));
   };
   return h('section', { id: 'sec-m-aud', class: 'card' },
-    sectionHead('オーディエンス（APPENDIX）', slides.audience[0]?.texts[0] || 'オーディエンス分析  [Spotify]',
+    sectionHead('オーディエンス（APPENDIX）', slideHeading(slides.audience[0]) || 'オーディエンス分析  [Spotify]',
       a.period ? `UTC ${fmtYMD(a.period.start)}〜${fmtYMD(a.period.end)}（monthly_reference の期間）  |  リピーター${fmtInt(a.repeat.value)}人・新規${fmtInt(a.new.value)}人${a.total.value !== null ? `（合計${fmtInt(a.total.value)}人）` : ''}` : 'この月の monthly_reference にオーディエンスの値なし'),
     proposedNote(ctx),
     a.any ? h('div', { class: 'aud-grid' }, ['gender', 'age', 'platform', 'country'].map(panel)) : h('p', { class: 'missing-block' }, `未取得（${mw.report_month ? `monthly_reference ${mw.report_month} にオーディエンスの行がない` : 'この月の report_month が無い（approved の monthly_reference が無い）'}）`),
@@ -553,7 +580,7 @@ function ranking(ctx) {
     ];
   }
   return h('section', { id: 'sec-m-rank', class: 'card' },
-    sectionHead('累積ランキング（APPENDIX）', slides.ranking[0]?.texts[0] || 'エピソード別 累積再生数ランキング', r.ok && r.mode === 'increment' ? `既配信${r.backEps.length}EPの増分・上位10本（${r.from}→${r.to}の${r.days}日間）` : r.ok ? `${r.at}時点の累計` : ''),
+    sectionHead('累積ランキング（APPENDIX）', slideHeading(slides.ranking[0]) || 'エピソード別 累積再生数ランキング', r.ok && r.mode === 'increment' ? `既配信${r.backEps.length}EPの増分・上位10本（${r.from}→${r.to}の${r.days}日間）` : r.ok ? `${r.at}時点の累計` : ''),
     proposedNote(ctx), body,
     exclusionList(ctx.ex.filter(e => e.area === 'ranking')),
     reportBoxes(slides.ranking) || noReport(ctx, '累積ランキング'));

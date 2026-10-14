@@ -503,6 +503,11 @@ button:disabled, .btn:disabled { opacity: .5; cursor: not-allowed; }
 .ap-history { font-size: 12px; color: #4A5257; border-top: 1px dashed var(--line); padding: 6px 0; }
 .ap-history ul { margin: 4px 0 0; padding-left: 1.2em; display: grid; gap: 2px; }
 .ap-h-withdrawn, .ap-h-rejected { color: var(--gray); text-decoration: line-through; text-decoration-color: rgba(0,0,0,.25); }
+.ap-sub { margin: 0; font-size: 14px; font-weight: 700; color: #6B4E12; }
+.ap-consume { border-top: 1px dashed #E4D3B0; padding-top: 12px; }
+.ap-consume-row { display: grid; grid-template-columns: repeat(2, minmax(0, 13em)); gap: 8px 12px; }
+.ap-pct, .ap-date { min-height: 2.4em; }
+.ap-date { text-align: left; }
 
 @media (max-width: 640px) {
   .ap-days { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -511,4 +516,5 @@ button:disabled, .btn:disabled { opacity: .5; cursor: not-allowed; }
 }
 @media (max-width: 400px) {
   .ap-days { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ap-consume-row { grid-template-columns: minmax(0, 1fr); }
 }

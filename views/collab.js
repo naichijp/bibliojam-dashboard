@@ -2,12 +2,13 @@
 // ロジック（引数の組み立て・検証・エラーの出し分け・revision の置き換え）は lib/collab.js。ここは表示と操作だけ。
 // cx（main.js が作る）：{ writable, mode, viewer, role, collab, bundle(), ix(), rerender(), reload(), refreshData(), relogin(), flash, editing }
 import { h, clear } from '../lib/dom.js';
-import { firstWeekFor, epLabel, shortTitle, jstDate } from '../lib/metrics.js';
+import { firstWeekFor, epLabel, shortTitle, jstDate, utcDate, addDays } from '../lib/metrics.js';
 import { fmtDateTime, fmtMD, fmtYMD, fmtInt } from '../lib/format.js';
 import {
   LOCAL_ONLY, capabilities, commentsFor, strayComments, memberName, canResolve, validateCommentBody, sectionLabel,
   notesMetaFor, editableModel, applyModel, newWeekNotes, sameJson, roleLabel, roleAtLeast,
   appleWindow, appleInputsFor, appleFirstWeekView, validateAppleForm, normalizeDigits, todayUtc, APPLE_STATUS_JA,
+  APPLE_CONSUME, appleConsumeView, validateConsumeForm, normalizePct, fmtConsume, consumeAsOfLabel,
 } from '../lib/collab.js';
 
 let uid = 0;
@@ -350,22 +351,31 @@ function notesEditor(cx, ix, week, eps, redrawPanel) {
   return form;
 }
 
-// ── Apple の初週の手入力 ─────────────────────────────────────────────
+// ── Apple の初週の手入力（再生・平均消費率） ─────────────────────────
+// 再生（公開日からUTC 7日の日別）と平均消費率（全期間）は別々に送れる（片方だけでもよい）
+const chipTextOf = v => (v.show === 'approved' ? (v.pending ? '承認済みあり・未承認の手入力あり' : '承認済みの値あり') : v.show === 'manual' ? '手入力（未承認）あり' : '未入力');
+const chipClassOf = v => (v.show === 'none' ? 'warn' : v.show === 'manual' ? 'gold' : 'muted');
+
 export function appleEntry(cx, ix, n) {
   const id = `apple-entry-${n}`;
-  if (!cx?.writable) return h('p', { class: 'cx-off ap-off' }, `🍎 Appleの初週を入力 — ${LOCAL_ONLY}`);
+  if (!cx?.writable) return h('p', { class: 'cx-off ap-off' }, `🍎 Appleの初週（再生・平均消費率）を入力 — ${LOCAL_ONLY}`);
   const caps = capabilities(cx);
   if (!caps.showApple) return null;   // viewer には出さない
   const b = cx.bundle();
   const ep = ix.epByNum.get(n) || null;
   const win = appleWindow(ep);
   const inputs = appleInputsFor(b, n);
-  const view = appleFirstWeekView(firstWeekFor(ix, n).apple.main, inputs);
+  const fwApple = firstWeekFor(ix, n).apple;
+  const view = appleFirstWeekView(fwApple.main, inputs);
+  const cInputs = appleInputsFor(b, n, APPLE_CONSUME);
+  const cView = appleConsumeView([fwApple.main, ...fwApple.others], cInputs);
   const flash = takeFlash(cx, `apple:${n}`);
-  const chipText = view.show === 'approved' ? (view.pending ? '承認済みあり・未承認の手入力あり' : '承認済みの値あり') : view.show === 'manual' ? '手入力（未承認）あり' : '未入力';
+  const cFlash = takeFlash(cx, `apple-consume:${n}`);
 
-  const details = h('details', { class: 'ap-entry', id, open: flash ? true : null },
-    h('summary', null, '🍎 Appleの初週を入力', h('span', { class: `chip ${view.show === 'none' ? 'warn' : view.show === 'manual' ? 'gold' : 'muted'}` }, chipText)));
+  const details = h('details', { class: 'ap-entry', id, open: flash || cFlash ? true : null },
+    h('summary', null, '🍎 Appleの初週を入力',
+      h('span', { class: `chip ${chipClassOf(view)}` }, `再生: ${chipTextOf(view)}`),
+      h('span', { class: `chip ${chipClassOf(cView)}` }, `平均消費率: ${chipTextOf(cView)}`)));
 
   if (!win) {
     details.append(h('p', { class: 'missing-block' }, `EP#${n} の公開日（episodes.published_at）が未登録のため、初週の7日間が決まりません。回の登録が先です。`));
@@ -427,6 +437,7 @@ export function appleEntry(cx, ix, n) {
       }
     },
   },
+  h('h4', { class: 'ap-sub' }, '初週の再生（公開日からUTC 7日の日別）'),
   h('p', { class: 'ap-window' }, `公開日（UTC）: ${fmtYMD(win.start)} → 初週の窓 UTC ${fmtMD(win.start)}〜${fmtMD(win.end)}（7日間）`),
   view.show === 'approved'
     ? h('p', { class: 'pf-caution' }, `承認済みの値（再生 ${fmtInt(view.approved.plays_or_views)}・${view.approved.data_type === 'first_week' ? '日別合計' : '全期間の値'}）があります。表示はそちらを優先します。入れ直すのは誤りに気づいたときだけ。`)
@@ -443,14 +454,103 @@ export function appleEntry(cx, ix, n) {
   h('div', { class: 'ne-field' }, h('label', { for: note.id }, '出典メモ（任意・1000文字まで）'), note),
   h('div', { class: 'cx-row' }, send, h('span', { class: 'ne-hint' }, '受付台帳に入るだけで、正本（DBの初週）には承認後に入ります。')),
   msg);
-  details.append(...[form, appleHistory(b, inputs)].filter(Boolean));
+  details.append(...[form, appleHistory(b, inputs), ...consumeForm(cx, ep, n, cView, cInputs, cFlash)].filter(Boolean));
   recalc(false);
   return details;
 }
 
+// 平均消費率（全期間）の入力。読んだ日（UTC）を選び、期間は公開日（UTC）〜読んだ日として送る
+function consumeForm(cx, ep, n, view, inputs, flash) {
+  const b = cx.bundle();
+  const id = `apple-consume-${n}`;
+  const today = todayUtc();
+  const pub = utcDate(ep.published_at);
+  const day7 = addDays(pub, 6);
+  const pct = h('input', { type: 'text', inputmode: 'decimal', autocomplete: 'off', id: `${id}-v`, class: 'ap-day ap-pct', placeholder: '例: 47.5', 'aria-describedby': `${id}-period` });
+  const date = h('input', { type: 'date', id: `${id}-d`, class: 'ap-day ap-date', min: pub, max: today, value: today, 'aria-describedby': `${id}-period` });
+  const period = h('p', { class: 'ap-total', id: `${id}-period`, 'aria-live': 'polite' });
+  const note = h('textarea', { id: `${id}-note`, rows: 2, placeholder: '例: エピソード個別ページ・全期間の平均消費率。配信9日目に読んだ' });
+  const cautionBox = h('div', { class: 'ap-cautions' });
+  const errBox = h('div', { class: 'ap-errors', 'aria-live': 'polite' });
+  const send = h('button', { type: 'submit', class: 'btn primary' }, 'Appleの平均消費率を送る');
+  const msg = h('div', { class: 'ap-msg', 'aria-live': 'polite' },
+    flash ? (flash.error ? errorBox(cx, flash.error) : okBox(flash.text, flash.extra || [])) : null);
+
+  const recalc = (showErrors = false) => {
+    const v = validateConsumeForm({ episode: ep, value: pct.value, readDate: date.value, note: note.value, today });
+    const d = String(date.value || '').trim();
+    period.textContent = v.ok
+      ? `送る値: ${fmtConsume(v.value)}（UTC ${fmtMD(pub)}〜${fmtMD(v.readDate)} の全期間）`
+      : `期間: UTC ${fmtMD(pub)}（公開日）〜${/^\d{4}-\d{2}-\d{2}$/.test(d) ? fmtMD(d) : '読んだ日'}（読んだ日）の全期間`;
+    const filledV = normalizePct(pct.value) !== '', filledD = d !== '';
+    const shown = v.errors.filter(e => showErrors || (e.field === 'value' && filledV) || (e.field === 'date' && filledD) || e.field === 'note' || e.field === 'window');
+    const badV = shown.some(e => e.field === 'value'), badD = shown.some(e => e.field === 'date');
+    if (badV) pct.setAttribute('aria-invalid', 'true'); else pct.removeAttribute('aria-invalid');
+    if (badD) date.setAttribute('aria-invalid', 'true'); else date.removeAttribute('aria-invalid');
+    cautionBox.replaceChildren(...v.cautions.map(c => h('p', { class: 'pf-caution' }, c)));
+    errBox.replaceChildren(...(shown.length ? [h('ul', { class: 'cx-list error' }, shown.map(e => h('li', null, e.message)))] : []));
+    return v;
+  };
+  for (const el of [pct, date, note]) el.addEventListener('input', () => recalc(false));
+  date.addEventListener('change', () => recalc(false));
+
+  const form = h('form', {
+    class: 'ap-form ap-consume', novalidate: true,
+    onsubmit: async ev => {
+      ev.preventDefault();
+      if (send.disabled) return;
+      const v = recalc(true);
+      if (!v.ok) { msg.replaceChildren(); ([pct, date].find(x => x.getAttribute('aria-invalid') === 'true') || send).focus(); return; }
+      busy(send, true); form.setAttribute('aria-busy', 'true');
+      for (const el of [pct, date, note]) el.readOnly = true;
+      const r = await cx.collab.submitAppleConsume({ episode_number: n, episode: ep, value: pct.value, readDate: date.value, note: note.value, today });
+      busy(send, false); form.removeAttribute('aria-busy');
+      for (const el of [pct, date, note]) el.readOnly = false;
+      if (r.ok) {
+        const extra = [...(r.cautions || []).map(c => `注意: ${c}`), ...r.warnings.map(w => `確認: ${w.message}`)];
+        if (r.withdrawn.length) extra.push(`同じ読んだ日の前の未承認の入力（受付ID ${r.withdrawn.join('・')}）は、入れ直しのため取り下げになりました。`);
+        if (r.reloadError) extra.push(r.reloadError);
+        cx.flash.set(`apple-consume:${n}`, { text: `送信しました（受付ID ${r.data.id}・平均消費率 ${fmtConsume(r.data.value)}・${consumeAsOfLabel(r.data)}（UTC）・${APPLE_STATUS_JA[r.data.status] || r.data.status}）。承認されるまでは「手入力（未承認）」と表示します。`, extra });
+        cx.rerender({ focus: `apple-entry-${n}` });
+      } else {
+        msg.replaceChildren(errorBox(cx, r.error));
+      }
+    },
+  },
+  h('h4', { class: 'ap-sub' }, '平均消費率（全期間）'),
+  h('p', { class: 'ap-window' }, `配信7日目（UTC ${fmtMD(day7)}）以降に、エピソード個別ページの全期間の平均消費率を読む`),
+  view.show === 'approved'
+    ? h('p', { class: 'pf-caution' }, `承認済みの値（平均消費率 ${fmtConsume(view.approved.consume_pct)}）があります。表示はそちらを優先します。入れ直すのは誤りに気づいたときだけ。`)
+    : null,
+  h('details', { class: 'ap-how' }, h('summary', null, '読み方（Apple Podcasts Connect）'),
+    h('ol', null,
+      h('li', null, 'この回のエピソード個別ページを開き、期間を全期間にして「平均消費率」（%）を読む。'),
+      h('li', null, 'エピソード一覧の値は使わない（期間の取り方が違う）。'),
+      h('li', null, `配信7日目（UTC ${fmtMD(day7)}）以降に読む。読んだ日（UTC）を下で選ぶ。日本時間の朝9時より前は、UTCではまだ前の日。`),
+      h('li', null, '小数があれば1桁まで入れる。読めないときは推測で埋めない（送らない）。'))),
+  h('div', { class: 'ap-consume-row' },
+    h('div', { class: 'ap-day-cell' }, h('label', { for: pct.id }, '平均消費率（%）', h('span', { class: 'ap-dn' }, '0〜100・小数1桁まで')), pct),
+    h('div', { class: 'ap-day-cell' }, h('label', { for: date.id }, '読んだ日（UTC）', h('span', { class: 'ap-dn' }, `既定は今日（UTC ${fmtMD(today)}）`)), date)),
+  period, errBox, cautionBox,
+  h('div', { class: 'ne-field' }, h('label', { for: note.id }, '出典メモ（任意・1000文字まで）'), note),
+  h('div', { class: 'cx-row' }, send, h('span', { class: 'ne-hint' }, '再生とは別に送ります（片方だけでもよい）。受付台帳に入るだけで、正本（DBの初週）には承認後に入ります。')),
+  msg);
+  recalc(false);
+  return [form, consumeHistory(b, inputs)];
+}
+
+function consumeHistory(b, inputs) {
+  if (!inputs.length) return null;
+  return h('div', { class: 'ap-history' }, h('p', { class: 'ne-list-title' }, 'これまでの入力（平均消費率）'),
+    h('ul', null, inputs.map(r => h('li', { class: `ap-h-${r.status}` },
+      `${fmtDateTime(r.entered_at)}・${memberName(b, r.entered_by)}・平均消費率 ${fmtConsume(r.value)}（${consumeAsOfLabel(r)}）`,
+      `・${APPLE_STATUS_JA[r.status] || r.status}`,
+      r.review_note ? `・${r.review_note}` : ''))));
+}
+
 function appleHistory(b, inputs) {
   if (!inputs.length) return null;
-  return h('div', { class: 'ap-history' }, h('p', { class: 'ne-list-title' }, 'これまでの入力'),
+  return h('div', { class: 'ap-history' }, h('p', { class: 'ne-list-title' }, 'これまでの入力（初週の再生）'),
     h('ul', null, inputs.map(r => h('li', { class: `ap-h-${r.status}` },
       `${fmtDateTime(r.entered_at)}・${memberName(b, r.entered_by)}・合計 ${fmtInt(r.value)}`,
       Array.isArray(r.daily_values) ? `（日別 ${r.daily_values.join('・')}）` : '（日別なし）',
