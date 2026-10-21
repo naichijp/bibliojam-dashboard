@@ -4,7 +4,7 @@ import { num, jstDateTime, epLabel, shortTitle, weekOfEpisode, isLongForm, utcDa
 import { fmtInt, fmtDur, cohortJa, fmtNum, fmtYMD, fmtMinutes, MISSING } from '../lib/format.js';
 import { sectionHead, firstWeekGrid, retentionBlock, cliffTable, dialogRow, insightBox, chip } from './common.js';
 import { appleEntry } from './collab.js';
-import { episodeYoutube } from './youtube.js';
+import { episodeYoutube, episodeCompare } from './youtube.js';
 
 export function renderEpisode(root, ix, param, cx = null) {
   const n = Number(param);
@@ -49,6 +49,10 @@ export function renderEpisode(root, ix, param, cx = null) {
     fwNote?.s?.footnote ? h('p', { class: 'calc-note' }, fwNote.s.footnote) : null,
     insightBox(fwNote?.s?.insight),
     cx ? appleEntry(cx, ix, n) : null));
+
+  // 2026-10-22〜：Spotify と YouTube を並べる（リテンションの重ね合わせ・Shorts からの流入）
+  const cmp = episodeCompare(ix, n);
+  if (cmp) root.append(cmp);
 
   root.append(h('section', { class: 'card' },
     sectionHead('リテンション', `${epLabel(ix, n)} のリテンション`, retNote?.s?.subtitle || null),

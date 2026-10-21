@@ -553,3 +553,5 @@ button:disabled, .btn:disabled { opacity: .5; cursor: not-allowed; }
   .bars li { grid-template-columns: 7em 1fr auto; }
 }
 .tbl td.ttl { text-align: left; }
+.bars li.hl .bar-k { font-weight: 700; color: #6A3FA0; }
+.tbl.cmp td { text-align: right; } .tbl.cmp td.small { text-align: left; }

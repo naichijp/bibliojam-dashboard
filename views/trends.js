@@ -4,10 +4,12 @@ import { num, weekWindow, DEFINITION_CHANGE_WEEK, DEFINITION_CHANGE_DATE, WINDOW
 import { fmtInt, fmtHours, fmtSigned, fmtWindowShort, statusJa, MISSING } from '../lib/format.js';
 import { weeklyBars, lineChart, destroyCharts } from '../lib/charts.js';
 import { sectionHead, srcWeek } from './common.js';
+import { ytAccountCard } from './youtube.js';
 
 const PREF_KEY = 'bj-dashboard-trends';
 function loadPref() { try { return JSON.parse(localStorage.getItem(PREF_KEY) || '{}'); } catch { return {}; } }
 function savePref(p) { try { localStorage.setItem(PREF_KEY, JSON.stringify(p)); } catch { /* 保存できなくても動く */ } }
+
 
 export function renderTrends(root, ix) {
   const pref = { wRange: 'all', wMetric: 'plays', dRange: '90', dMetric: 'plays', ...loadPref() };
@@ -18,12 +20,16 @@ export function renderTrends(root, ix) {
   root.append(
     h('header', { class: 'page-head' }, h('h1', null, '推移'), h('p', { class: 'sub' }, '週次・日次・フォロワーの推移。数値はDBの値（daily_metrics・weekly_snapshots）。')),
     weeklyCard, dailyCard, folCard);
+  const ytHost = h('div');   // 2026-10-22〜：YouTube のアカウント全体（destroyCharts で消えるので redraw のたびに作り直す）
+  root.append(ytHost);
 
   const redraw = () => {
     destroyCharts();
     drawWeekly(weeklyCard, ix, pref, redraw);
     drawDaily(dailyCard, ix, pref, redraw);
     drawFollowers(folCard, ix, pref, redraw);
+    const yt = ytAccountCard(ix);
+    ytHost.replaceChildren(...(yt ? [yt] : []));
     savePref(pref);
   };
   redraw();
