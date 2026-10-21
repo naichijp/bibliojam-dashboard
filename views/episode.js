@@ -4,6 +4,7 @@ import { num, jstDateTime, epLabel, shortTitle, weekOfEpisode, isLongForm, utcDa
 import { fmtInt, fmtDur, cohortJa, fmtNum, fmtYMD, fmtMinutes, MISSING } from '../lib/format.js';
 import { sectionHead, firstWeekGrid, retentionBlock, cliffTable, dialogRow, insightBox, chip } from './common.js';
 import { appleEntry } from './collab.js';
+import { episodeYoutube } from './youtube.js';
 
 export function renderEpisode(root, ix, param, cx = null) {
   const n = Number(param);
@@ -59,7 +60,8 @@ export function renderEpisode(root, ix, param, cx = null) {
     cliffTable(ix, n),
     h('div', { class: 'dialog-box' }, dialogRow(ix, n))));
 
-  root.append(youtubeSection(ix, n));
+  // 2026-10-22〜：API の動画台帳（db.yt）にこの回の動画があればそちらを出す。旧台帳（youtube_videos）は EP#18 で止まっている
+  root.append(episodeYoutube(ix, n) || youtubeSection(ix, n));
 }
 
 function youtubeSection(ix, n) {

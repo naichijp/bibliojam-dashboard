@@ -521,3 +521,35 @@ button:disabled, .btn:disabled { opacity: .5; cursor: not-allowed; }
   .ap-days { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .ap-consume-row { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ── Spotify × YouTube・YouTube の詳細・本編への導線（2026-10-22〜） ── */
+.tt-grid, .fn-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 10px; }
+.fn-grid { grid-template-columns: 1.6fr 1fr 1fr; }
+.tt-col, .fn-col { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; background: var(--white); min-width: 0; }
+.tt-spotify { border-top: 4px solid var(--cyan); }
+.tt-youtube { border-top: 4px solid var(--red); }
+.fn-shorts { border-top: 4px solid #6A3FA0; }
+.fn-x { border-top: 4px solid var(--ink); }
+.fn-ig { border-top: 4px solid #C13584; }
+.tt-title, .fn-title { margin: 0 0 8px; font-size: 16px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tt-row { display: grid; grid-template-columns: 8.5em auto 1fr; gap: 4px 10px; align-items: baseline; padding: 5px 0; border-bottom: 1px dashed var(--line); }
+.tt-k { color: var(--gray); font-size: 13px; }
+.tt-v { font-size: 20px; font-weight: 700; }
+.tt-s { color: var(--gray); font-size: 12px; }
+.tt-note { color: var(--gray); font-size: 12px; margin: 8px 0 0; }
+.yt-traffic-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 12px 0; }
+.yt-traffic h4 { margin: 0 0 6px; font-size: 14px; }
+.bars { list-style: none; margin: 0; padding: 0; }
+.bars li { display: grid; grid-template-columns: 10em 1fr auto; gap: 8px; align-items: center; font-size: 13px; padding: 2px 0; }
+.bar { background: var(--gray-lt); border-radius: 3px; height: 10px; overflow: hidden; }
+.bar-fill { display: block; height: 100%; background: var(--red); }
+.fn-shorts .bar-fill { background: #6A3FA0; }
+.bar-v { color: var(--gray); white-space: nowrap; }
+.tbl.small td, .tbl.small th { font-size: 12px; }
+@media (max-width: 760px) {
+  .tt-grid, .fn-grid, .yt-traffic-grid { grid-template-columns: minmax(0, 1fr); }
+  .tt-row { grid-template-columns: 7.5em auto; }
+  .tt-s { grid-column: 1 / -1; }
+  .bars li { grid-template-columns: 7em 1fr auto; }
+}
+.tbl td.ttl { text-align: left; }

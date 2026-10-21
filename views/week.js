@@ -12,6 +12,7 @@ import {
   srcWeek, insightBox, noteMissing, sectionHead, chip, firstWeekGrid, retentionBlock, cliffTable, dialogRow, epLink,
 } from './common.js';
 import { commentBox, notesPanel, appleEntry, strayCommentsCard } from './collab.js';
+import { twoTop, ytDetail, funnel } from './youtube.js';
 import { SECTION, sectionKey, weekSectionKeys } from '../lib/collab.js';
 
 // cx：書き込み機能（main.js が作る。ローカル表示では writable=false で「ログインした公開版で使えます」を出す）
@@ -29,7 +30,7 @@ export function renderWeek(root, ix, param, cx = null) {
   const eps = episodesForWeek(ix, week);
   const ctx = { ix, week, prev, notes, eps, win: weekWindow(ix, week), cmp: wowComparison(ix, week, prev) };
 
-  const toc = [['cover', '表紙'], ['notes', '文章と承認'], ['summary', 'サマリー'], ['kpi', '全体KPI'], ['first', '初週'], ['ret', 'リテンション'], ['cliffs', '崖・対話'], ['kaiyu', '回遊'], ['wrap', '示唆と次アクション']];
+  const toc = [['cover', '表紙'], ['notes', '文章と承認'], ['summary', 'サマリー'], ['twotop', 'Spotify×YouTube'], ['kpi', '全体KPI（Spotify）'], ['ytdetail', 'YouTube詳細'], ['funnel', '導線'], ['first', '初週'], ['ret', 'リテンション'], ['cliffs', '崖・対話'], ['kaiyu', '回遊'], ['wrap', '示唆と次アクション']];
   root.append(h('nav', { class: 'toc', 'aria-label': 'この週の目次' },
     toc.map(([id, label]) => h('button', { type: 'button', onclick: () => document.getElementById(`sec-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }, label))));
 
@@ -39,7 +40,10 @@ export function renderWeek(root, ix, param, cx = null) {
     cover(ctx),
     cx ? notesPanel(cx, ix, week, eps) : null,
     withComments(summary(ctx), SECTION.SUMMARY),
+    twoTop(ctx),
     withComments(kpi(ctx), SECTION.KPI),
+    ytDetail(ctx),
+    funnel(ctx),
     h('div', { id: 'sec-first', class: 'anchor' }), ...eps.map(n => withComments(firstWeekSection(ctx, n, cx), sectionKey(SECTION.FIRST_WEEK, n))),
     eps.length ? null : h('section', { class: 'card' }, h('p', { class: 'missing-block' }, 'この週に公開した回が見つかりません（episodes の公開日で判定）')),
     h('div', { id: 'sec-ret', class: 'anchor' }), ...eps.map(n => withComments(retentionSection(ctx, n, eps.length ? Math.max(...eps) - 1 : undefined), sectionKey(SECTION.RETENTION, n))),
