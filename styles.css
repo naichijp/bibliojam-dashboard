@@ -87,6 +87,9 @@ button, select, input { font: inherit; }
 .warn-sub { display: block; font-weight: 400; color: #6B3A33; font-size: 12px; }
 .chart-box.empty { height: auto; }
 .missing-block { color: var(--gray); font-size: 13px; padding: 10px 0; }
+.missing-block.later { color: var(--gold-text); }
+.missing-block .later-note { display: block; color: var(--gray); font-size: 12px; margin-top: 2px; }
+.val.no-week { color: var(--gray); font-size: 13px; }
 .anchor { scroll-margin-top: 70px; height: 0; }
 section[id^="sec-"] { scroll-margin-top: 70px; }
 

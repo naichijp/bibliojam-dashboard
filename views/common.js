@@ -2,7 +2,7 @@
 import { h, val } from '../lib/dom.js';
 import {
   num, weekWindow, firstWeekFor, retentionFor, retentionAverage, diffPt, cleanTs5s, isLongForm,
-  cliffsFor, cliffClassJa, dialogFor, epLabel, Q_KEYS, utcDate, isYoutubeApiRow, youtubeApiLabel, youtubeApiCompare,
+  cliffsFor, cliffClassJa, dialogFor, epLabel, Q_KEYS, utcDate, isYoutubeApiRow, youtubeApiLabel, youtubeApiCompare, firstWeekLater, platformKey,
 } from '../lib/metrics.js';
 import {
   MISSING, fmtInt, fmtHours, fmtSigned, fmtMinutes, fmtMMSS, fmtDur, fmtWindow, fmtDateTime,
@@ -132,6 +132,39 @@ function ytApiLine(group) {
     val(parts.join('・') || '値なし', srcFW(c.api, 'plays_or_views', '窓の違い：API は太平洋時間の暦日7日（約160時間）、Studio は公開から168時間。差の多くはこの違い（docs/YouTube_API切り替え案.md 2-3）')));
 }
 
+// 初週の値が無いとき：後から取れるもの（取れる日つき）と、7日値が取れないものを分けて出す（2026-10-22〜）
+const LATER_WHY = {
+  spotify: 'Spotifyの「最初の7日間」は公開から168時間たってから取る',
+  youtube_long: 'YouTube Studioの7日値は公開から168時間たってから取る',
+  shorts: 'Shortsの7日値は本ごとに公開から168時間たってから取る（複数本なら最後の本の公開から7日後）',
+  apple: 'Appleは公開したUTC日から7日間の日別合計。最後の日の分は72時間遅れて出る。月曜の確定セッションで取る',
+};
+function laterText(ep, key, what) {
+  const l = firstWeekLater(ep, key);
+  if (!l) return `${what}は未取得`;
+  return l.ready ? `${what}は未取得（${l.date}から取れる。次の確定セッションで取る）` : `${what}は後日取得（${l.date}以降に取れる）`;
+}
+function laterBlock(ep, key, what, ix) {
+  // 方針で作らない・取れないと決めた行（status=unavailable。例：Now Reading 回の Shorts）は「なし」と出す
+  const un = ix && ep ? ix.firstWeek.find(r => r.episode_number === ep.episode_number && r.status === 'unavailable' && platformKey(r) === key) : null;
+  if (un) return h('p', { class: 'missing-block' }, val(`${what}はなし（方針）`, srcFW(un, 'status')));
+  // Now Reading 回は Shorts を作らない（2026-10-09 決定）。bundle は approved の行だけなので、回の情報から判定する
+  if (key === 'shorts' && ep && (ep.genre === 'Now Reading' || /今、読んでいる本/.test(ep.title || '')))
+    return h('p', { class: 'missing-block' }, val('Shortsはなし（Now Reading回は作らない方針）', ['2026-10-09 決定：Now Reading回はShortsを作らない', '判定: episodes.genre または題名「今、読んでいる本」']));
+  return h('p', { class: 'missing-block later', title: LATER_WHY[key] || '' }, laterText(ep, key, what),
+    key === 'shorts' ? h('span', { class: 'later-note' }, '複数本なら最後の本の公開から7日後') : null);
+}
+// 7日値が取れない欄（YouTube Studio の平均視聴時間）。API の参考値があれば並べ、無ければ取れる見込みの日を出す
+function noWeekValue(ep, group, field) {
+  const c = youtubeApiCompare(group);
+  const apiVal = c ? num(c.api[field]) : null;
+  const base = '7日値なし（Studioは公開後の値だけ）';
+  if (apiVal !== null) return val(`${base}・API参考値 ${fmtMinutes(apiVal)}`, srcFW(c.api, field, 'Studioでは公開後ちょうど7日の平均視聴時間が出ないため、YouTube APIの7日の値（参考値）を並べる'), 'no-week');
+  const l = firstWeekLater(ep, 'youtube_api');
+  const apiText = !l ? '' : l.ready ? '・API参考値は未取得' : `・API参考値は${l.date}ごろ以降`;
+  return val(base + apiText, ['Studioでは公開後ちょうど7日の平均視聴時間が出ないため空けている（#39と同じ扱い）', 'YouTube APIの7日の値は、太平洋時間の7日目の処理が終わってから参考値として取る'], 'no-week');
+}
+
 function shortsCount(fw) {
   if (fw.shortsVideos.length > 1) return fw.shortsVideos.length;
   const m = String(fw.shorts.main?.notes || '').match(/Shorts[がは]?\s*(\d+)\s*本/);
@@ -140,6 +173,7 @@ function shortsCount(fw) {
 
 export function firstWeekGrid(ix, n, noteSection) {
   const fw = firstWeekFor(ix, n);
+  const ep = ix.epByNum.get(n);
   const np = notePlatforms(noteSection);
   const sp = fw.spotify.main, ap = fw.apple.main, yt = fw.youtube_long.main, sh = fw.shorts.main;
 
@@ -150,7 +184,7 @@ export function firstWeekGrid(ix, n, noteSection) {
     row('オーディエンス', val(num(sp.listeners) === null ? MISSING : `${fmtInt(sp.listeners)}人`, srcFW(sp, 'listeners'))),
     row('平均視聴時間', val(fmtMinutes(sp.avg_view_min), srcFW(sp, 'avg_view_min'))),
     row('期間', val(`${fmtYMD(sp.period_start)}〜${fmtYMD(sp.period_end)}`, srcFW(sp, 'period_start'))),
-  ] : [h('p', { class: 'missing-block' }, 'Spotifyの初週は未取得')];
+  ] : [laterBlock(ep, 'spotify', 'Spotifyの初週', ix)];
 
   const apOthers = fw.apple.others;
   // Apple の手入力（公開版の bundle.apple_inputs）。approved の行があればそちらを優先し、無いときだけ「手入力（未承認）」を出す
@@ -169,17 +203,17 @@ export function firstWeekGrid(ix, n, noteSection) {
     h('p', { class: 'pf-caution' }, '72時間遅延のため参考値。他のプラットフォームと順位を比べない。'),
     apView.pending ? h('p', { class: 'kv-others' }, val(`未承認の手入力: 合計${fmtInt(apView.pending.value)}`, srcManual(ix, apView.pending)), '（表示は承認済みの値を優先）') : null,
   ] : apView.manual ? [...manualAppleBody(ix, apView.manual), consumeRow]
-    : cView.show !== 'none' ? [h('p', { class: 'missing-block' }, 'Appleの初週の再生は未取得'), consumeRow]
-      : [h('p', { class: 'missing-block' }, 'Appleの初週は未取得')];
+    : cView.show !== 'none' ? [laterBlock(ep, 'apple', 'Appleの初週の再生', ix), consumeRow]
+      : [laterBlock(ep, 'apple', 'Appleの初週', ix)];
 
   const ytBody = yt ? [
     row('視聴回数', val(num(yt.plays_or_views) === null ? MISSING : `${fmtInt(yt.plays_or_views)}回`, srcFW(yt, 'plays_or_views'), 'big')),
     row('CTR', val(num(yt.ctr_pct) === null ? MISSING : `${fmtNum(yt.ctr_pct, 1)}%`, srcFW(yt, 'ctr_pct'))),
     row('総再生時間', val(num(yt.watch_hours) === null ? MISSING : `${fmtNum(yt.watch_hours, 1)}h`, srcFW(yt, 'watch_hours'))),
-    row('平均視聴時間', val(fmtMinutes(yt.avg_view_min), srcFW(yt, 'avg_view_min'))),
+    row('平均視聴時間', num(yt.avg_view_min) === null && !isYoutubeApiRow(yt) ? noWeekValue(ep, fw.youtube_long, 'avg_view_min') : val(fmtMinutes(yt.avg_view_min), srcFW(yt, 'avg_view_min'))),
     num(yt.unique_viewers) !== null ? row('ユニーク視聴者', val(`${fmtInt(yt.unique_viewers)}人`, srcFW(yt, 'unique_viewers'))) : null,
     ytApiLine(fw.youtube_long),
-  ] : [h('p', { class: 'missing-block' }, 'YouTube長尺の初週は未取得')];
+  ] : [laterBlock(ep, 'youtube_long', 'YouTube長尺の初週', ix)];
 
   const count = shortsCount(fw);
   const shBody = sh ? [
@@ -187,11 +221,11 @@ export function firstWeekGrid(ix, n, noteSection) {
     row('総再生時間', val(num(sh.watch_hours) === null ? MISSING : `${fmtNum(sh.watch_hours, 1)}h`, srcFW(sh, 'watch_hours'))),
     count > 1
       ? h('p', { class: 'pf-caution' }, '継続率・平均視聴時間は複数本を合算しない。')
-      : row('平均視聴時間', val(fmtMinutes(sh.avg_view_min), srcFW(sh, 'avg_view_min'))),
+      : row('平均視聴時間', num(sh.avg_view_min) === null && !isYoutubeApiRow(sh) ? noWeekValue(ep, fw.shorts, 'avg_view_min') : val(fmtMinutes(sh.avg_view_min), srcFW(sh, 'avg_view_min'))),
     fw.shortsVideos.length ? h('div', { class: 'kv-others' }, '内訳（youtube_videos）: ',
       fw.shortsVideos.map((v, i) => [i ? '／' : '', val(fmtInt(v.views_week1 ?? v.views_total), [`出典: youtube_videos（${v.video_id}）`, `${v.title || ''}`, v.views_week1 !== null && v.views_week1 !== undefined ? '値: views_week1（7日）' : '値: views_total（累計。7日値なし）'])])) : null,
     ytApiLine(fw.shorts),
-  ] : [h('p', { class: 'missing-block' }, 'Shortsの初週は未取得')];
+  ] : [laterBlock(ep, 'shorts', 'Shortsの初週', ix)];
 
   return h('div', { class: 'pf-grid' },
     pfColumn('spotify', 'Spotify（全PF統合）', '#00CCBA', spBody, np.spotify, fwFlags(sp)),
