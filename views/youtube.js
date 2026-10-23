@@ -120,7 +120,6 @@ export function ytDetail(ctx) {
   return h('section', { id: 'sec-ytdetail', class: 'card' },
     sectionHead('YouTube の詳細', `W${week.week_number} の YouTube（長尺と Shorts）`, `太平洋時間 ${wd.start}〜${wd.end}・API の参考値`),
     h('div', { class: 'chips' }, coverageChip(wd)),
-    (ret?.status === 'provisional' || sp?.status === 'provisional' || yts?.status === 'provisional') ? h('p', { class: 'pf-caution' }, '暫定・未承認の取得値を含みます。7日未満の回は速報です。') : null,
     h('div', { class: 'tbl-scroll' }, table),
     h('p', { class: 'calc-note' }, '表示回数・CTR は Reporting API の日次（回に結び付いた動画の合計。CTR は表示回数で重み付け）。Shorts の表示回数は Shorts フィードの表示を含まないことがある。'),
     h('div', { class: 'yt-traffic-grid' }, trafficList(ytTraffic(ix, week, 'long'), '長尺の流入経路', true), trafficList(ytTraffic(ix, week, 'shorts'), 'Shorts の流入経路')),
@@ -214,6 +213,7 @@ export function episodeCompare(ix, n) {
   else box.replaceChildren(h('p', { class: 'missing-block' }, 'リテンションの曲線がまだありません（Spotify の ts5s・YouTube の API の曲線のどちらも無い）'));
   return h('section', { class: 'card' },
     sectionHead('Spotify × YouTube', `${epLabel(ix, n)} を2つ並べて見る`, apiNote),
+    (ret?.status === 'provisional' || sp?.status === 'provisional' || yts?.status === 'provisional') ? h('p', { class: 'pf-caution' }, '暫定・未承認の取得値を含みます。7日未満の回は速報です。') : null,
     h('div', { class: 'tbl-scroll' }, table),
     h('h3', { class: 'h3' }, 'リテンションの重ね合わせ（横軸は尺に対する位置）'),
     box,
