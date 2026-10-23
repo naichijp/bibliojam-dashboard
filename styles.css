@@ -186,7 +186,9 @@ select { padding: 6px 8px; border: 1px solid #CFCAB9; border-radius: 6px; backgr
 .chart-box { position: relative; width: 100%; min-width: 0; }
 .chart-trend { height: 300px; }
 .chart-trend-all { height: 340px; }
-.chart-ret { height: 380px; }
+/* W36・W37のレポート上の配置（横6.80 × 縦3.90）に合わせる。 */
+.chart-ret { height: auto; aspect-ratio: 68 / 39; }
+.chart-ret > canvas { position: absolute; inset: 0; width: 100% !important; height: 100% !important; }
 .chart-kaiyu { height: 300px; }
 .chart-daily { height: 280px; }
 .chart-compare { height: 300px; }
@@ -313,7 +315,6 @@ select { padding: 6px 8px; border: 1px solid #CFCAB9; border-radius: 6px; backgr
   .tile-v { font-size: 24px; }
   .chart-trend, .chart-kaiyu, .chart-daily, .chart-compare { height: 250px; }
   .chart-trend-all { height: 280px; }
-  .chart-ret { height: 300px; }
   .scr-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .scr-r { font-size: 15px; }
   .nav a { padding: 4px 8px; font-size: 13px; }

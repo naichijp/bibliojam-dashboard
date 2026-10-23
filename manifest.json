@@ -12,7 +12,7 @@
   "lib/youtube.js": "0d6560ea92340a3f53a346c2ce5db925f72572ae5e205e64bc695454cc3dfe5f",
   "main.js": "98aa68ccdac72a4f937bc25960bfc095f47d0d5d61663d82738c90fd7c3cc095",
   "privacy.html": "3e9c51bd1ead542e098ef0c2bb53b73e2294fce719a89b20458524d0b8b9cab1",
-  "styles.css": "0fe94ec5518148206b293dd58c412eca7f683199bc9211acaff680f5d4d2ee88",
+  "styles.css": "6a2ac014ae46022b12d5d06b492c3a41c330c6d3cbe51d4d2c7a358b15b41530",
   "views/collab.js": "9de21a08806b33991eb59d45a98b6c0e62d11db1b662ee29fcb2cae1204844e5",
   "views/common.js": "36c436a8d0bd70a005ef933998907a98029c94e20baa37370bd2505dc27f7c7e",
   "views/episode.js": "92c37212c457829eb30c1a64bff8867b4f348896c3b4c0f34774d876d45abdca",
@@ -24,5 +24,5 @@
   "views/youtube.js": "0d828ef325653f607c1e85e1a970639ecb50d7c177ef250846815ae370640841",
   "config.js": "a662f537f45526dae546d70db9d67e62315ea88c359d1df0d008ebb174aabeef"
  },
- "total_bytes": 451399
+ "total_bytes": 451577
 }
