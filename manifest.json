@@ -6,23 +6,23 @@
   "lib/collab.js": "cf523746552f01f684475b81dfc1c23fafe379399281a487a1f31808cf95fda4",
   "lib/dom.js": "4ecd8fcee17cb6b134127da05c61402cef8a8c62ccdb225d5f008fcdef9f4bb2",
   "lib/format.js": "08f9ff45a13b6cf6be29373b08d1e84d039606ba4c4fac4ad351b5f0b5d87601",
-  "lib/metrics.js": "e5cfd8ba4803409fff0405648ce1690852eb8dd22f4faf92c32c65b69f6dd0b4",
+  "lib/metrics.js": "586db4e75d4c6784d975218c25ade0c8f94034d72bbe0e8e0aac849121a57429",
   "lib/monthly.js": "da912adb0d4c95a71fa4af6aa939c92f68b994fcaf27edad807733dc4e07709a",
   "lib/sns.js": "1dd423d04bf6aaf68d20c3d83aa572b1001624850d8f03d00e3b7aabe11dbd2b",
-  "lib/youtube.js": "a1ebcd63f3023bcd1ea590fb09d33a82aae45e6a29912653883467356512cd3b",
+  "lib/youtube.js": "0d6560ea92340a3f53a346c2ce5db925f72572ae5e205e64bc695454cc3dfe5f",
   "main.js": "98aa68ccdac72a4f937bc25960bfc095f47d0d5d61663d82738c90fd7c3cc095",
   "privacy.html": "3e9c51bd1ead542e098ef0c2bb53b73e2294fce719a89b20458524d0b8b9cab1",
   "styles.css": "0fe94ec5518148206b293dd58c412eca7f683199bc9211acaff680f5d4d2ee88",
   "views/collab.js": "9de21a08806b33991eb59d45a98b6c0e62d11db1b662ee29fcb2cae1204844e5",
-  "views/common.js": "67d40812f0eb01757cf02a76fe6579405af43cb9c0bb054bd0e24efdca676638",
+  "views/common.js": "36c436a8d0bd70a005ef933998907a98029c94e20baa37370bd2505dc27f7c7e",
   "views/episode.js": "92c37212c457829eb30c1a64bff8867b4f348896c3b4c0f34774d876d45abdca",
   "views/episodes.js": "5b4dcce859d7066904adec63f994b33c138cb86e800d89a738ca640e9698171b",
   "views/month.js": "361004e3ddbe7c1917b3422776222504f5f715e091b98b2f30d5525fc282b5d2",
   "views/status.js": "51b757b5740d916b67d79073bfafc11a1c27ee329d8486b661003aed2876c28d",
   "views/trends.js": "859685e138afce31a5d27e3a2a25574aa1310a5740ddf87d7fad8abbbb0ef0a6",
   "views/week.js": "4fc003bdd55c6fea9c2e00767b3dcf91233fc64f6b5f7d66433e60a71d0131d6",
-  "views/youtube.js": "46b20f6bb49f5dc41105a321533aba42ea932da9057b3c805322672f5eb63202",
+  "views/youtube.js": "a9de960bbc6b7173d04d648552b35df9aec219e1372fd0d1e1c4f7c13df4f197",
   "config.js": "a662f537f45526dae546d70db9d67e62315ea88c359d1df0d008ebb174aabeef"
  },
- "total_bytes": 448748
+ "total_bytes": 451399
 }

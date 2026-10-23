@@ -113,6 +113,7 @@ function pfColumn(key, title, color, body, noteP, flags = []) {
 function fwFlags(main) {
   const f = [];
   if (!main) return f;
+  if (main.status === 'provisional') f.push(chip('暫定・未承認', 'warn'));
   if (main.exact_first_week !== true) f.push(chip(firstWeekFlag(main), 'warn'));
   if (main.status === 'approved' && !main.approved_at) f.push(chip('承認日時不明', 'muted'));
   return f;
@@ -172,7 +173,7 @@ function shortsCount(fw) {
 }
 
 export function firstWeekGrid(ix, n, noteSection) {
-  const fw = firstWeekFor(ix, n);
+  const fw = firstWeekFor(ix, n, { includeProvisional: true });
   const ep = ix.epByNum.get(n);
   const np = notePlatforms(noteSection);
   const sp = fw.spotify.main, ap = fw.apple.main, yt = fw.youtube_long.main, sh = fw.shorts.main;
@@ -289,7 +290,7 @@ const Q_LABEL = { q1: 'Q1 (25%)', q2: 'Q2 (50%)', q3: 'Q3 (75%)', complete: 'Com
 const Q_COLOR = { q1: '#1B6348', q2: '#4CAF70', q3: '#2471A3', complete: '#C8943C' };
 
 export function retentionBlock(ix, n, noteSection, { avgTo } = {}) {
-  const ret = retentionFor(ix, n);
+  const ret = retentionFor(ix, n, { includeProvisional: true });
   const ep = ix.epByNum.get(n);
   const long = isLongForm(ix, n);
   const avg = retentionAverage(ix, n, undefined, avgTo ?? n - 1);
@@ -297,7 +298,7 @@ export function retentionBlock(ix, n, noteSection, { avgTo } = {}) {
   const duration = num(ep?.duration_seconds);
   const ts = cleanTs5s(ret?.ts5s);
 
-  if (!ret) return h('div', { class: 'ret-wrap' }, h('p', { class: 'missing-block' }, `EP#${n} の approved のリテンションは未取得`));
+  if (!ret) return h('div', { class: 'ret-wrap' }, h('p', { class: 'missing-block' }, `EP#${n} のリテンションは未取得`));
 
   const typeLabel = noteSection?.type_label || ret.retention_type || null;
   const typeSrc = noteSection?.type_label ? '型ラベルの出典: 週の文章（notes.retention_sections.type_label）' : ret.retention_type ? '型ラベルの出典: episode_retention.retention_type' : '型ラベルは未設定（DB・文章のどちらにもない）';
@@ -336,7 +337,10 @@ export function retentionBlock(ix, n, noteSection, { avgTo } = {}) {
       ? `平均の計算条件：episode_retention の status=approved（各回の最新1件）、${range}（n=${avg.n}）の単純平均。欠損の回は数えない（Q3が空の回はDB側でraw_retentionから補完済み）。平均は小数1桁に四捨五入してから差を出す。曲線は ts5s（5秒刻み）を階段状に描画。`
       : '平均の計算条件：比較できる過去回（EP#10〜）がない');
 
-  const wrap = h('div', { class: 'ret-wrap' }, h('div', { class: 'ret-grid' }, box, side), cond);
+  const wrap = h('div', { class: 'ret-wrap' },
+    ret.status === 'provisional' ? h('p', { class: 'pf-caution' },
+      ret.is_first_week_complete === false ? '速報・7日未満（暫定・未承認）。初週がそろった後に再取得する。' : '暫定・未承認。取得済みの曲線を表示しています。') : null,
+    h('div', { class: 'ret-grid' }, box, side), cond);
   // canvas はDOMに入ってから描く
   queueMicrotask(() => {
     if (!duration) { box.replaceChildren(h('p', { class: 'missing-block' }, '尺（duration_seconds）が未取得のため曲線を描けない')); return; }
