@@ -1,6 +1,6 @@
 // #/episodes 回の一覧と比較
 import { h, val } from '../lib/dom.js';
-import { num, firstWeekFor, retentionFor, jstDate, shortTitle, epLabel, isLongForm } from '../lib/metrics.js';
+import { num, firstWeekFor, retentionFor, jstDate, shortTitle, epLabel, isLongForm, platformKey } from '../lib/metrics.js';
 import { fmtInt, fmtPct, fmtMMSS, cohortJa, MISSING, fmtYMD } from '../lib/format.js';
 import { compareBars, destroyCharts } from '../lib/charts.js';
 import { sectionHead, srcFW, srcRet } from './common.js';
@@ -33,6 +33,10 @@ function rowsOf(ix) {
       sp: num(fw.spotify.main?.plays_or_views), ap: num(fw.apple.main?.plays_or_views),
       yt: num(fw.youtube_long.main?.plays_or_views), sh: num(fw.shorts.main?.plays_or_views),
       q1: num(ret?.q1), complete: num(ret?.complete), long: isLongForm(ix, n),
+      // Shorts を作らないと決めた回（status=unavailable の行）は「なし」と出す（未取得と分ける）
+      // bundle は approved／provisional の行だけなので、回の詳細（common.js laterBlock）と同じく Now Reading 回で判定する
+      shNone: ix.firstWeek.find(r => r.episode_number === n && r.status === 'unavailable' && platformKey(r) === 'shorts')
+        || ((e.genre === 'Now Reading' || /今、読んでいる本/.test(e.title || '')) ? { now_reading: true } : null),
     };
   });
 }
@@ -97,7 +101,7 @@ function drawTable(card, ix, rows, pref, redraw) {
           h('td', { 'data-label': 'Spotify初週' }, val(fmtInt(r.sp), srcFW(r.fw.spotify.main, 'plays_or_views'))),
           h('td', { 'data-label': 'Apple（参考）', class: 'muted-cell' }, val(fmtInt(r.ap), srcFW(r.fw.apple.main, 'plays_or_views', '参考値。順位比較しない'))),
           h('td', { 'data-label': 'YouTube長尺' }, val(fmtInt(r.yt), srcFW(r.fw.youtube_long.main, 'plays_or_views'))),
-          h('td', { 'data-label': 'Shorts' }, val(fmtInt(r.sh), srcFW(r.fw.shorts.main, 'plays_or_views'))),
+          h('td', { 'data-label': 'Shorts' }, r.sh === null && r.shNone ? val('なし', r.shNone.now_reading ? ['2026-10-09 決定：Now Reading回はShortsを作らない', '判定: episodes.genre または題名「今、読んでいる本」'] : srcFW(r.shNone, 'status', 'この回はShortsを作っていない')) : val(fmtInt(r.sh), srcFW(r.fw.shorts.main, 'plays_or_views'))),
           h('td', { 'data-label': 'Q1' }, val(r.q1 === null ? MISSING : fmtPct(r.q1), srcRet(r.ret, 'raw_q1'))),
           h('td', { 'data-label': 'Complete' }, val(r.complete === null ? MISSING : fmtPct(r.complete), srcRet(r.ret, 'raw_complete', r.long ? '倍尺回' : '')))))))));
 }
