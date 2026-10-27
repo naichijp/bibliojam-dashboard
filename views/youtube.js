@@ -2,7 +2,7 @@
 import { h, val } from '../lib/dom.js';
 import { num, pctChange, epLabel } from '../lib/metrics.js';
 import { MISSING, fmtInt, fmtHours, fmtSigned, fmtNum, fmtMinutes } from '../lib/format.js';
-import { Y, ytWeekDays, ytWeekSummary, ytTraffic, ytVideosInWeek, shortsFunnel, ytEpisodeDetail, ytCurvePoints, ytCurveAt, ytChannelLatest, ytWeeklySeries, trafficDisplayRows } from '../lib/youtube.js';
+import { Y, ytWeekDays, ytWeekSummary, ytTraffic, ytVideosInWeek, shortsFunnel, ytEpisodeDetail, ytEpisodeDailySeries, ytCurvePoints, ytCurveAt, ytChannelLatest, ytWeeklySeries, trafficDisplayRows } from '../lib/youtube.js';
 import { firstWeekFor, retentionFor, cleanTs5s, youtubeApiCompare } from '../lib/metrics.js';
 import { retentionCompareChart, dailyStackBars } from '../lib/charts.js';
 import { srcWeek, sectionHead, chip, srcFW } from './common.js';
@@ -181,20 +181,21 @@ export function episodeCompare(ix, n) {
   const ep = ix.epByNum.get(n);
   const sp = fw.spotify.main, yts = fw.youtube_long.main;
   const L = d?.long?.[0] || null;
+  const speed = sp?.data_type === 'speed_report' || yts?.data_type === 'speed_report' || (!yts && L && !L.complete7);
   const dur = num(ep?.duration_seconds);
   const sTs = cleanTs5s(ret?.ts5s);
   const spCurve = dur && sTs.length ? sTs.map(([x, y]) => ({ x: Math.min(100, Math.round(x / dur * 1000) / 10), y })) : [];
   const ytCurve = L ? ytCurvePoints(L.retention) : [];
   const shCurve = d?.shorts?.[0] ? ytCurvePoints(d.shorts[0].retention) : [];
   const r = (label, a, b, note) => h('tr', null, h('th', null, label), h('td', null, a), h('td', null, b), h('td', { class: 'small muted' }, note || ''));
-  const apiNote = L && !L.complete7 ? `API は太平洋時間 ${d.lastDay} まで（7日に届いていない）` : 'API は太平洋時間の暦日7日（約160時間）';
+  const apiNote = L && !L.complete7 ? `API は太平洋時間 ${L.lastDay || '不明'} まで（7日に届いていない）` : 'API は太平洋時間の暦日7日（約160時間）';
   const table = h('table', { class: 'tbl cmp' },
     h('thead', null, h('tr', null, h('th', null, ''), h('th', null, 'Spotify'), h('th', null, 'YouTube 長尺'), h('th', null, ''))),
     h('tbody', null,
-      r('初週の再生・視聴', val(sp ? fmtInt(sp.plays_or_views) : MISSING, sp ? srcFW(sp, 'plays_or_views') : []),
+      r(speed ? '再生・視聴（速報を含む）' : '初週の再生・視聴', val(sp ? fmtInt(sp.plays_or_views) : MISSING, sp ? srcFW(sp, 'plays_or_views') : []),
         val(yts ? `${fmtInt(yts.plays_or_views)}回` : L ? `${fmtInt(L.first7.views)}回（API）` : MISSING, yts ? srcFW(yts, 'plays_or_views') : []),
-        'Spotify は全PF統合の「再生数とダウンロード数」。YouTube は Studio の7日（無ければ API）'),
-      r('初週の視聴時間', val(sp ? fmtHours(sp.watch_hours) : MISSING, sp ? srcFW(sp, 'watch_hours') : []),
+        'Spotify は全PF統合の「再生数とダウンロード数」。YouTube は Studio を優先（速報を含む。無ければ API）'),
+      r(speed ? '視聴時間（速報を含む）' : '初週の視聴時間', val(sp ? fmtHours(sp.watch_hours) : MISSING, sp ? srcFW(sp, 'watch_hours') : []),
         val(yts && num(yts.watch_hours) !== null ? `${fmtNum(yts.watch_hours, 1)}h` : L ? `${fmtNum(L.first7.watch_hours, 1)}h（API）` : MISSING, yts ? srcFW(yts, 'watch_hours') : [])),
       r('平均視聴時間', val(sp ? fmtMinutes(sp.avg_view_min) : MISSING, sp ? srcFW(sp, 'avg_view_min') : []),
         (() => { const c = youtubeApiCompare(fw.youtube_long); const a = c ? num(c.api.avg_view_min) : null;
@@ -202,10 +203,10 @@ export function episodeCompare(ix, n) {
       r('50%地点に残る割合', val(pctTxt(num(ret?.q2)), ['Spotify：Q2（尺の50%）']), val(pctTxt(L ? ytCurveAt(L.retention, 0.5) : null), ['YouTube：audienceWatchRatio（尺の50%）'])),
       r('最後まで残る割合', val(pctTxt(num(ret?.complete)), ['Spotify：Complete']), val(pctTxt(L ? ytCurveAt(L.retention, 1) : null), ['YouTube：audienceWatchRatio（尺の100%）']),
         '同じ「割合」でも数え方が違う（Spotify は聴いた人、YouTube は視聴回数あたり）ので目安'),
-      r('表示回数・CTR（7日）', '—', val(L && L.impressions7 !== null ? `${fmtInt(L.impressions7)}回・${fmtNum(L.ctr7, 1)}%` : MISSING, ['Reporting API の日次の和（CTR は表示回数で重み付け）'])),
+      r(L && !L.complete7 ? '表示回数・CTR（処理済み分）' : '表示回数・CTR（7日）', '—', val(L && L.impressions7 !== null ? `${fmtInt(L.impressions7)}回・${fmtNum(L.ctr7, 1)}%` : MISSING, ['Reporting API の日次の和（CTR は表示回数で重み付け）'])),
       r('Shorts からの流入', '—', val(d?.shortsToLong?.first7 !== null && d?.shortsToLong?.first7 !== undefined ? `7日 ${fmtInt(d.shortsToLong.first7)}回` : d?.shortsToLong?.toDate !== null && d?.shortsToLong?.toDate !== undefined ? `公開から ${fmtInt(d.shortsToLong.toDate)}回` : MISSING,
         ['本編（長尺）の視聴のうち、流入経路が「Shorts から本編へのリンク」のもの（API）']),
-        d?.shortsToLong?.toDate !== null && d?.shortsToLong?.toDate !== undefined ? `公開から ${fmtInt(d.shortsToLong.toDate)}回（太平洋時間 ${d.lastDay} まで）` : '')));
+        d?.shortsToLong?.toDate !== null && d?.shortsToLong?.toDate !== undefined ? `公開から ${fmtInt(d.shortsToLong.toDate)}回（太平洋時間 ${L?.trafficToDate?.end || L?.lastDay || '不明'} まで）` : '')));
   const box = h('div', { class: 'chart-box chart-ret' });
   const canvas = h('canvas', { role: 'img', 'aria-label': `EP#${n} の Spotify と YouTube のリテンション` });
   box.append(canvas);
@@ -237,8 +238,8 @@ export function episodeYoutube(ix, n) {
   const days = [];
   for (let i = 0; i < 28; i++) { const t = Date.parse(start + 'T00:00:00Z') + i * 86400000; const k = new Date(t).toISOString().slice(0, 10); if (d.lastDay && k > d.lastDay) break; days.push(k); }
   const series = [
-    { label: '長尺', color: '#C0392B', data: days.map(k => d.long.reduce((a, l) => a + (num(l.daily.find(r => r.day === k)?.views) || 0), 0)) },
-    { label: 'Shorts', color: '#6A3FA0', data: days.map(k => d.shorts.reduce((a, l) => a + (num(l.daily.find(r => r.day === k)?.views) || 0), 0)) },
+    { label: '長尺', color: '#C0392B', data: ytEpisodeDailySeries(d.long, days) },
+    { label: 'Shorts', color: '#6A3FA0', data: ytEpisodeDailySeries(d.shorts, days) },
   ];
   const box = h('div', { class: 'chart-box' });
   const canvas = h('canvas', { role: 'img', 'aria-label': `EP#${n} の YouTube の日別視聴` });
@@ -249,6 +250,7 @@ export function episodeYoutube(ix, n) {
     h('td', null, x.video.content_type === 'shorts' ? 'Shorts' : '長尺'),
     h('td', { class: 'ttl' }, cleanTitle(x.video)),
     h('td', null, x.start),
+    h('td', null, x.lastDay || MISSING),
     h('td', null, x.complete7 ? fmtInt(x.first7.views) : `${fmtInt(x.first7.views)}（途中）`),
     h('td', null, fmtInt(x.toDate.views)),
     h('td', null, `${fmtNum(x.toDate.watch_hours, 1)}h`),
@@ -257,14 +259,14 @@ export function episodeYoutube(ix, n) {
     h('td', null, pctTxt(ytCurveAt(x.retention, 0.5))),
     h('td', null, pctTxt(ytCurveAt(x.retention, 1))));
   return h('section', { class: 'card' },
-    sectionHead('YouTube の詳細', `${epLabel(ix, n)} の YouTube`, `API の参考値（太平洋時間の日）。最終処理日 ${d.lastDay || '不明'}`),
+    sectionHead('YouTube の詳細', `${epLabel(ix, n)} の YouTube`, `API の参考値（太平洋時間の日）。取得済みの最終日 ${d.lastDay || '不明'}。動画ごとの末日は表に記載`),
     h('h3', { class: 'h3' }, '公開からの日別視聴（最大28日）'), box,
     h('div', { class: 'tbl-scroll' }, h('table', { class: 'tbl small' },
-      h('thead', null, h('tr', null, ['種類', '題名', '公開（PT）', '7日の視聴', '公開からの視聴', '総再生時間', 'エンゲージ', '登録者の増', '50%地点', '終わり'].map(t => h('th', null, t)))),
+      h('thead', null, h('tr', null, ['種類', '題名', '公開（PT）', '取得済み末日（PT）', '公開7日以内の視聴', '公開からの視聴', '総再生時間', 'エンゲージ', '登録者の増', '50%地点', '終わり'].map(t => h('th', null, t)))),
       h('tbody', null, all.map(vrow)))),
-    h('p', { class: 'calc-note' }, '50%地点・終わりは公開から7日の audienceWatchRatio（Shorts はループで100%を超える）。'),
+    h('p', { class: 'calc-note' }, '動画ごとの取得範囲がそろわない日のグラフは欠測。50%地点・終わりは公開から7日の audienceWatchRatio（Shorts はループで100%を超える）。'),
     L ? h('div', { class: 'yt-traffic-grid' }, trafficBars(L.traffic7, '長尺の流入経路・7日'), trafficBars(L.trafficToDate, '長尺の流入経路・公開から')) : null,
-    h('p', { class: 'calc-note' }, `色付きの「Shortsから本編へのリンク」は、Shorts 内の関連動画リンクからこの本編への直接流入。APIに該当経路が無い期間は「記録なし」と表示（Shortsフィードの視聴とは別）。Shorts の7日の視聴 ${fmtInt(d.shortsViews7)}回に対して、本編への流入は7日 ${d.shortsToLong.first7 ?? '—'}回・公開から ${d.shortsToLong.toDate ?? '—'}回。`));
+    h('p', { class: 'calc-note' }, `色付きの「Shortsから本編へのリンク」は、Shorts 内の関連動画リンクからこの本編への直接流入。APIに該当経路が無い期間は「記録なし」と表示（Shortsフィードの視聴とは別）。Shorts の${d.shorts.every(s => s.complete7) ? '7日' : '処理済み分（7日未満を含む）'}の視聴 ${fmtInt(d.shortsViews7)}回に対して、本編への流入は7日 ${d.shortsToLong.first7 ?? '—'}回・公開から ${d.shortsToLong.toDate ?? '—'}回。`));
 }
 
 // ── 推移：YouTube のアカウント全体（2026-10-22〜）──────────────────────
